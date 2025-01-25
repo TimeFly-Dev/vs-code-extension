@@ -1,0 +1,17 @@
+{
+  "date": "2025-01-25",
+  "activities": [
+    {
+      "type": "READING",
+      "timestamp": 1737808617923,
+      "sessionId": "1737808617923",
+      "project": {
+        "name": "unknown",
+        "workspace": "unknown",
+        "language": "plaintext",
+        "file": "Untitled-1"
+      }
+    }
+  ],
+  "synced": false
+}
