@@ -1,6 +1,6 @@
-# timetracker README
+# timefly README
 
-This is the README for your extension "timetracker". After writing up a brief description, we recommend including the following sections.
+This is the README for your extension "timefly". After writing up a brief description, we recommend including the following sections.
 
 ## Features
 

@@ -1,5 +1,5 @@
-import typescriptEslint from "@typescript-eslint/eslint-plugin";
-import tsParser from "@typescript-eslint/parser";
+import typescriptEslint from "@typescript-eslint/eslint-plugin"
+import tsParser from "@typescript-eslint/parser"
 
 export default [{
     files: ["**/*.ts"],
@@ -23,6 +23,10 @@ export default [{
         curly: "warn",
         eqeqeq: "warn",
         "no-throw-literal": "warn",
-        semi: "warn",
+        semi: "off",
+        quotes: ["warn", "single"],
+        "comma-dangle": ["warn", "always-multiline"],
+        "arrow-parens": ["warn", "as-needed"],
+        "space-before-function-paren": ["warn", "always"],
     },
-}];
+}]
