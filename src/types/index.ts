@@ -65,7 +65,7 @@ export interface HeartbeatStore {
   heartbeats: Heartbeat[]
   aggregatedHeartbeats: AggregatedHeartbeat[]
   todayTotal: number
-  lastFileContent?: string
+  lastFileContent: string
   lastActivityTime: number
   lastAggregationTime: number
   lastHeartbeat?: Heartbeat

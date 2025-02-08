@@ -1,10 +1,10 @@
 {
   "name": "timefly",
-  "displayName": "timefly",
-  "description": "",
+  "displayName": "TimeFly",
+  "description": "Track your coding time and activity",
   "version": "0.0.1",
   "engines": {
-    "vscode": "1.97.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
@@ -22,6 +22,10 @@
       {
         "command": "timefly.exportHeartbeats",
         "title": "TimeFly: Export Heartbeats"
+      },
+      {
+        "command": "timefly.showSyncInfo",
+        "title": "TimeFly: Show Sync Information"
       }
     ]
   },
@@ -45,8 +49,8 @@
     "@types/node": "22.13.1",
     "@typescript-eslint/eslint-plugin": "8.23.0",
     "@typescript-eslint/parser": "8.23.0",
-    "eslint": "9.19.0",
-    "esbuild": "0.24.2",
+    "eslint": "9.20.0",
+    "esbuild": "0.25.0",
     "npm-run-all": "4.1.5",
     "typescript": "5.7.3",
     "@vscode/test-cli": "0.0.10",

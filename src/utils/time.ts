@@ -7,4 +7,3 @@ export const formatTime = (seconds: number): string => {
   const remainingMinutes = minutes % 60
   return `${hours}h ${remainingMinutes}m`
 }
-
