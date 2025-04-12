@@ -1,10 +1,11 @@
 import type * as vscode from 'vscode'
-import type { Pulse, SyncStatus } from '../types'
+import type { Pulse, SyncStatus, AggregatedPulse } from '../types'
 import { hasDayChanged, getCurrentDateString } from '../utils/time'
 import { updateObject } from '../utils/functional'
 import { logger } from '../utils/logger'
 
 const PENDING_PULSES_KEY = 'timefly.pendingPulses'
+const AGGREGATED_PULSES_KEY = 'timefly.aggregatedPulses'
 const TODAY_TOTAL_KEY = 'timefly.todayTotal'
 const LAST_SYNC_KEY = 'timefly.lastSync'
 const TODAY_DATE_KEY = 'timefly.todayDate'
@@ -79,6 +80,26 @@ export const createStorageService = (storage: vscode.Memento) => {
       const remaining = pending.filter(p => !syncedIds.has(p.time))
       storageLogger.debug(`Clearing ${syncedPulses.length} synced pulses, remaining: ${remaining.length}`)
       return Promise.resolve(storage.update(PENDING_PULSES_KEY, remaining))
+    },
+
+    saveAggregatedPulses: (pulses: ReadonlyArray<AggregatedPulse>): Promise<void> => {
+      const existing = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
+      storageLogger.debug(`Saving ${pulses.length} aggregated pulses, existing: ${existing.length}`)
+      return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, [...existing, ...pulses]))
+    },
+
+    getAggregatedPulses: (): ReadonlyArray<AggregatedPulse> => {
+      const pulses = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
+      storageLogger.debug(`Retrieved ${pulses.length} aggregated pulses`)
+      return pulses
+    },
+
+    clearSyncedAggregatedPulses: (syncedPulses: ReadonlyArray<AggregatedPulse>): Promise<void> => {
+      const pending = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
+      const syncedIds = new Set(syncedPulses.map(p => p.start_time))
+      const remaining = pending.filter(p => !syncedIds.has(p.start_time))
+      storageLogger.debug(`Clearing ${syncedPulses.length} synced aggregated pulses, remaining: ${remaining.length}`)
+      return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, remaining))
     },
 
     saveTodayTotal: (total: number): Promise<void> => {

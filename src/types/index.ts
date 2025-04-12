@@ -117,6 +117,9 @@ export interface StorageService {
   savePulses: (pulses: ReadonlyArray<Pulse>) => Promise<void>
   getPendingPulses: () => ReadonlyArray<Pulse>
   clearSyncedPulses: (syncedPulses: ReadonlyArray<Pulse>) => Promise<void>
+  saveAggregatedPulses: (pulses: ReadonlyArray<AggregatedPulse>) => Promise<void>
+  getAggregatedPulses: () => ReadonlyArray<AggregatedPulse>
+  clearSyncedAggregatedPulses: (syncedPulses: ReadonlyArray<AggregatedPulse>) => Promise<void>
   saveTodayTotal: (total: number) => Promise<void>
   getTodayTotal: () => number
   getLastSyncTime: () => number

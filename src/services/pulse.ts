@@ -245,6 +245,16 @@ export const createPulseService = (
 
         // Save pulse and total time
         await storageService.savePulses([pulse])
+        
+        // If we have aggregated pulses, save them too
+        if (currentContext.aggregatedPulses.length > 0) {
+          await storageService.saveAggregatedPulses(currentContext.aggregatedPulses)
+          // Clear the aggregated pulses from context after saving
+          currentContext = updateObject(currentContext, {
+            aggregatedPulses: [] as ReadonlyArray<AggregatedPulse>,
+          })
+        }
+        
         await storageService.saveTodayTotal(currentContext.todayTotal)
 
         return Promise.resolve()
@@ -268,15 +278,19 @@ export const createPulseService = (
 
       // Also include pulses from storage to ensure consistency
       const storedPulses = storageService.getPendingPulses()
+      const storedAggregatedPulses = storageService.getAggregatedPulses()
 
       // Create a set of pulse times we already have to avoid duplicates
       const existingPulseTimes = new Set(allPulses.map(p => ('time' in p ? p.time : p.start_time)))
 
       // Add stored pulses that aren't already in our list
       const uniqueStoredPulses = storedPulses.filter(p => !existingPulseTimes.has(p.time))
+      
+      // Add stored aggregated pulses
+      const uniqueStoredAggregatedPulses = storedAggregatedPulses.filter(p => !existingPulseTimes.has(p.start_time))
 
       // Combine all pulses
-      const combinedPulses = [...allPulses, ...uniqueStoredPulses]
+      const combinedPulses = [...allPulses, ...uniqueStoredPulses, ...uniqueStoredAggregatedPulses]
 
       return {
         data: combinedPulses,

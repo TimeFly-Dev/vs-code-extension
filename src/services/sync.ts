@@ -1,4 +1,4 @@
-import type { Pulse, StorageService } from '../types'
+import type { Pulse, AggregatedPulse, StorageService } from '../types'
 import { logger } from '../utils/logger'
 import { CONFIG } from '../config'
 import * as vscode from 'vscode'
@@ -52,15 +52,22 @@ const showAuthNotification = () => {
 }
 
 /**
- * Syncs pulses to the backend
+ * Syncs pulses and aggregated pulses to the backend
  * @param pulses - The pulses to sync
+ * @param aggregatedPulses - The aggregated pulses to sync
  * @returns A promise that resolves to true if sync was successful
  */
-const syncToBackend = async (pulses: ReadonlyArray<Pulse>): Promise<boolean> => {
-  syncLogger.debug(`Syncing ${pulses.length} pulses to ${CONFIG.API_ENDPOINT}`)
+const syncToBackend = async (
+  pulses: ReadonlyArray<Pulse>,
+  aggregatedPulses: ReadonlyArray<AggregatedPulse>,
+): Promise<boolean> => {
+  syncLogger.debug(
+    `Syncing ${pulses.length} pulses and ${aggregatedPulses.length} aggregated pulses to ${CONFIG.API_ENDPOINT}`,
+  )
 
   // Get authentication token
   const token = await getAuthToken()
+
   if (!token) {
     syncLogger.warn('No authentication token found')
     showAuthNotification()
@@ -75,7 +82,7 @@ const syncToBackend = async (pulses: ReadonlyArray<Pulse>): Promise<boolean> => 
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        data: pulses,
+        data: [...pulses, ...aggregatedPulses], // Send both types of pulses
         start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 24 hours ago
         end: new Date().toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -87,7 +94,7 @@ const syncToBackend = async (pulses: ReadonlyArray<Pulse>): Promise<boolean> => 
     }
 
     const result = (await response.json()) as SyncResponse
-    syncLogger.info(`Successfully synced ${result.syncedCount || pulses.length} pulses`)
+    syncLogger.info(`Successfully synced ${result.syncedCount || pulses.length + aggregatedPulses.length} items`)
     return true
   } catch (error) {
     syncLogger.error('Sync failed:', error)
@@ -96,19 +103,20 @@ const syncToBackend = async (pulses: ReadonlyArray<Pulse>): Promise<boolean> => 
 }
 
 /**
- * Performs synchronization of pending pulses
+ * Performs synchronization of pending pulses and aggregated pulses
  * @param storageService - The storage service
  * @returns A promise that resolves when sync is complete
  */
 const performSync = (storageService: StorageService): Promise<void> => {
   const pendingPulses = storageService.getPendingPulses()
+  const aggregatedPulses = storageService.getAggregatedPulses()
 
-  if (pendingPulses.length === 0) {
-    syncLogger.debug('No pending pulses to sync')
+  if (pendingPulses.length === 0 && aggregatedPulses.length === 0) {
+    syncLogger.debug('No pulses to sync')
     return Promise.resolve()
   }
 
-  syncLogger.debug(`Attempting to sync ${pendingPulses.length} pulses`)
+  syncLogger.debug(`Attempting to sync ${pendingPulses.length} pulses and ${aggregatedPulses.length} aggregated pulses`)
 
   // Check if we have a token before attempting to sync
   return getAuthToken().then(token => {
@@ -120,15 +128,18 @@ const performSync = (storageService: StorageService): Promise<void> => {
         apiStatus: 'error',
         lastSyncTime: Date.now(),
         nextSyncTime: Date.now() + CONFIG.SYNC.INTERVAL,
-        pendingPulses: pendingPulses.length,
+        pendingPulses: pendingPulses.length + aggregatedPulses.length,
       })
     }
 
     // We have a token, proceed with sync
     const attemptSync = (retryCount: number): Promise<void> =>
-      syncToBackend(pendingPulses).then(success => {
+      syncToBackend(pendingPulses, aggregatedPulses).then(success => {
         if (success) {
-          return storageService.clearSyncedPulses(pendingPulses).then(() => {
+          return Promise.all([
+            storageService.clearSyncedPulses(pendingPulses),
+            storageService.clearSyncedAggregatedPulses(aggregatedPulses),
+          ]).then(() => {
             const now = Date.now()
             syncLogger.info(`Sync successful, next sync in ${CONFIG.SYNC.INTERVAL / 60000} minutes`)
             return storageService.updateSyncStatus({
@@ -156,7 +167,7 @@ const performSync = (storageService: StorageService): Promise<void> => {
           lastSyncTime:
             storageService.getSyncStatus().lastSyncTime > 0 ? storageService.getSyncStatus().lastSyncTime : Date.now(),
           nextSyncTime: Date.now() + CONFIG.SYNC.INTERVAL,
-          pendingPulses: pendingPulses.length,
+          pendingPulses: pendingPulses.length + aggregatedPulses.length,
         })
       })
 
@@ -176,9 +187,12 @@ export const createSyncService = (storageService: StorageService) => {
   const syncOnStartup = () => {
     syncLogger.info('Checking for pending pulses on startup')
     const pendingPulses = storageService.getPendingPulses()
+    const aggregatedPulses = storageService.getAggregatedPulses()
 
-    if (pendingPulses.length > 0) {
-      syncLogger.info(`Found ${pendingPulses.length} pending pulses from previous session, attempting to sync`)
+    if (pendingPulses.length > 0 || aggregatedPulses.length > 0) {
+      syncLogger.info(
+        `Found ${pendingPulses.length} pending pulses and ${aggregatedPulses.length} aggregated pulses from previous session, attempting to sync`,
+      )
       return performSync(storageService)
     }
 
@@ -224,6 +238,7 @@ export const createSyncService = (storageService: StorageService) => {
     getSyncInfo: () => {
       const status = storageService.getSyncStatus()
       const pendingPulses = storageService.getPendingPulses().length
+      const pendingAggregatedPulses = storageService.getAggregatedPulses().length
 
       // Ensure we never return invalid dates (0 timestamp)
       if (status.lastSyncTime <= 0) {
@@ -234,8 +249,8 @@ export const createSyncService = (storageService: StorageService) => {
         status.nextSyncTime = Date.now() + CONFIG.SYNC.INTERVAL
       }
 
-      // Update pending pulses count
-      status.pendingPulses = pendingPulses
+      // Update pending pulses count (include both types)
+      status.pendingPulses = pendingPulses + pendingAggregatedPulses
 
       return status
     },
