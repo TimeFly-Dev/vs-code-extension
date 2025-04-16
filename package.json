@@ -1,10 +1,10 @@
 {
   "name": "timefly",
   "displayName": "TimeFly",
-  "description": "Track your coding time and activity",
+  "description": "Track your coding habits",
   "version": "1.0.0",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.99.0"
   },
   "categories": [
     "Other"
@@ -13,27 +13,33 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "publisher": "TimeFly",
+  "icon": "images/icon.png",
+  "keywords": [
+    "time tracking",
+    "productivity",
+    "coding"
+  ],
+  "galleryBanner": {
+    "color": "#d47a5c",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "homepage": "https://timefly.dev",
+  "bugs": {
+    "url": "https://timefly.dev"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TimeFly-Dev/vs-code-extension.git",
+    "private": true
+  },
+  "license": "SEE LICENSE IN LICENSE.txt",
   "contributes": {
     "commands": [
       {
-        "command": "timefly.showHeartbeats",
-        "title": "TimeFly: Show Today's Heartbeats"
-      },
-      {
         "command": "timefly.exportHeartbeats",
         "title": "TimeFly: Export Heartbeats"
-      },
-      {
-        "command": "timefly.showSyncInfo",
-        "title": "TimeFly: Show Sync Information"
-      },
-      {
-        "command": "timefly.toggleDebugMode",
-        "title": "TimeFly: Toggle Debug Mode"
-      },
-      {
-        "command": "timefly.clearAllData",
-        "title": "TimeFly: Clear All Data"
       },
       {
         "command": "timefly.authenticate",
