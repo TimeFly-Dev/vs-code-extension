@@ -5,16 +5,10 @@ export const CONFIG = {
   // API endpoint for syncing pulses
   API_ENDPOINT: 'http://localhost:3000/sync',
 
-  // Authentication settings
-  AUTH: {
-    // URL for the authentication page
-    LOGIN_URL: 'https://www.timefly.dev/auth',
-
-    // Local storage key for the access token
-    TOKEN_KEY: 'timefly.accessToken',
-
-    // Local storage key for the refresh token
-    REFRESH_TOKEN_KEY: 'timefly.refreshToken',
+  // API Key settings
+  API_KEY: {
+    // Local storage key for the API key
+    KEY_STORAGE: 'timefly.apiKey',
   },
 
   // Sync settings

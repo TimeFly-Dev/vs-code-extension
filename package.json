@@ -36,8 +36,8 @@
         "title": "TimeFly: Clear All Data"
       },
       {
-        "command": "timefly.authenticate",
-        "title": "TimeFly: Authenticate"
+        "command": "timefly.addApiKey",
+        "title": "TimeFly: Add API Key"
       },
       {
         "command": "timefly.syncNow",

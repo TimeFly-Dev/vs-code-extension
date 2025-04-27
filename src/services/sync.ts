@@ -2,7 +2,7 @@ import type { Pulse, AggregatedPulse, StorageService } from '../types'
 import { logger } from '../utils/logger'
 import { CONFIG } from '../config'
 import * as vscode from 'vscode'
-import { getExtensionContext } from '../commands/auth'
+import { getExtensionContext } from '../commands/apiKey'
 
 // Create a module-specific logger
 const syncLogger = logger.createChildLogger('Sync')
@@ -16,37 +16,35 @@ interface SyncResponse {
 }
 
 /**
- * Gets the authentication token from VSCode secrets
- * @returns A promise that resolves to the token or null if not found
+ * Gets the API key from VSCode global state
+ * @returns A promise that resolves to the API key or null if not found
  */
-const getAuthToken = async (): Promise<string | null> => {
+const getApiKey = async (): Promise<string | null> => {
   try {
-    // If not found in VSCode secrets, check if we have it in global state
     const context = getExtensionContext()
     if (context) {
-      const token = context.globalState.get(CONFIG.AUTH.TOKEN_KEY) as string | undefined
-      if (token) {
-        syncLogger.debug('Found authentication token in global state')
-        return token
+      const apiKey = context.globalState.get(CONFIG.API_KEY.KEY_STORAGE) as string | undefined
+      if (apiKey) {
+        syncLogger.debug('Found API key in global state')
+        return apiKey
       }
     }
 
     return null
   } catch (error) {
-    syncLogger.error('Error getting auth token:', error)
+    syncLogger.error('Error getting API key:', error)
     return null
   }
 }
 
 /**
- * Shows authentication notification to the user
+ * Shows API key notification to the user
  */
-const showAuthNotification = () => {
-  vscode.window.showWarningMessage('TimeFly needs authentication to sync your data.', 'Login').then(selection => {
-    if (selection === 'Login') {
-      vscode.env.openExternal(vscode.Uri.parse(CONFIG.AUTH.LOGIN_URL))
-      // Also show the authentication panel
-      vscode.commands.executeCommand('timefly.authenticate')
+const showApiKeyNotification = () => {
+  vscode.window.showWarningMessage('TimeFly needs an API key to sync your data.', 'Add API Key').then(selection => {
+    if (selection === 'Add API Key') {
+      // Show the API key input panel
+      vscode.commands.executeCommand('timefly.addApiKey')
     }
   })
 }
@@ -65,12 +63,12 @@ const syncToBackend = async (
     `Syncing ${pulses.length} pulses and ${aggregatedPulses.length} aggregated pulses to ${CONFIG.API_ENDPOINT}`,
   )
 
-  // Get authentication token
-  const token = await getAuthToken()
+  // Get API key
+  const apiKey = await getApiKey()
 
-  if (!token) {
-    syncLogger.warn('No authentication token found')
-    showAuthNotification()
+  if (!apiKey) {
+    syncLogger.warn('No API key found')
+    showApiKeyNotification()
     return false
   }
 
@@ -79,7 +77,7 @@ const syncToBackend = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        'X-API-Key': apiKey,
       },
       body: JSON.stringify({
         data: [...pulses, ...aggregatedPulses], // Send both types of pulses
@@ -118,11 +116,11 @@ const performSync = (storageService: StorageService): Promise<void> => {
 
   syncLogger.debug(`Attempting to sync ${pendingPulses.length} pulses and ${aggregatedPulses.length} aggregated pulses`)
 
-  // Check if we have a token before attempting to sync
-  return getAuthToken().then(token => {
-    if (!token) {
-      syncLogger.warn('No authentication token found, skipping sync')
-      showAuthNotification()
+  // Check if we have an API key before attempting to sync
+  return getApiKey().then(apiKey => {
+    if (!apiKey) {
+      syncLogger.warn('No API key found, skipping sync')
+      showApiKeyNotification()
       return storageService.updateSyncStatus({
         isOnline: false,
         apiStatus: 'error',
@@ -132,7 +130,7 @@ const performSync = (storageService: StorageService): Promise<void> => {
       })
     }
 
-    // We have a token, proceed with sync
+    // We have an API key, proceed with sync
     const attemptSync = (retryCount: number): Promise<void> =>
       syncToBackend(pendingPulses, aggregatedPulses).then(success => {
         if (success) {

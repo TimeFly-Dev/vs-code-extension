@@ -7,7 +7,7 @@ import { createStatusBarItem, updateStatusBar } from './ui/statusBar'
 import { registerDebugCommands } from './commands/debug'
 import { logger } from './utils/logger'
 import type { ActivityState } from './types'
-import { registerAuthCommands } from './commands/auth'
+import { registerApiKeyCommands } from './commands/apiKey'
 
 const IDLE_CHECK_INTERVAL = 60000 // Check for idle every minute
 const STATUS_BAR_UPDATE_INTERVAL = 1000 // Update status bar every second
@@ -29,7 +29,6 @@ const detectState = (editor: vscode.TextEditor | undefined): ActivityState => {
   return vscode.debug.activeDebugSession ? 'debugging' : 'coding'
 }
 
-// Variable para almacenar los servicios para acceso externo
 let globalSyncService: any = null
 let globalPulseService: any = null
 
@@ -67,7 +66,7 @@ export function activate (context: vscode.ExtensionContext): any {
 
     // Register commands
     registerDebugCommands(context, pulseService)
-    registerAuthCommands(context)
+    registerApiKeyCommands(context)
 
     // Start sync scheduling
     syncService.scheduleSync()

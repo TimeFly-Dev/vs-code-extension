@@ -3,7 +3,7 @@ import { CONFIG } from '../config'
 import { logger } from '../utils/logger'
 
 // Create a module-specific logger
-const authLogger = logger.createChildLogger('Auth')
+const apiKeyLogger = logger.createChildLogger('ApiKey')
 
 // Use a global variable to store the context
 let extensionContext: vscode.ExtensionContext | null = null
@@ -17,34 +17,34 @@ export const getExtensionContext = (): vscode.ExtensionContext | null => {
 }
 
 /**
- * Saves the authentication token to VSCode secrets
- * @param token - The authentication token
+ * Saves the API key to VSCode global state
+ * @param apiKey - The API key
  * @param context - The VSCode extension context
- * @returns A promise that resolves when the token is saved
+ * @returns A promise that resolves when the API key is saved
  */
-const saveAuthToken = async (token: string, context: vscode.ExtensionContext): Promise<void> => {
+const saveApiKey = async (apiKey: string, context: vscode.ExtensionContext): Promise<void> => {
   try {
-    await context.globalState.update(CONFIG.AUTH.TOKEN_KEY, token)
-    authLogger.info('Authentication token saved successfully')
+    await context.globalState.update(CONFIG.API_KEY.KEY_STORAGE, apiKey)
+    apiKeyLogger.info('API key saved successfully')
 
     // Show success message and trigger a sync
-    vscode.window.showInformationMessage('TimeFly: Authentication successful! Syncing data...')
+    vscode.window.showInformationMessage('TimeFly: API key saved successfully! Syncing data...')
     
-    // Ejecutar el comando syncNow que está registrado en extension.ts
+    // Execute the syncNow command registered in extension.ts
     vscode.commands.executeCommand('timefly.syncNow')
   } catch (error) {
-    authLogger.error('Error saving authentication token:', error)
+    apiKeyLogger.error('Error saving API key:', error)
     throw error
   }
 }
 
 /**
- * Handles the authentication callback
+ * Handles the API key input
  * @param context - The VSCode extension context
- * @returns A promise that resolves when authentication is complete
+ * @returns A promise that resolves when API key input is complete
  */
-const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<void> => {
-  const panel = vscode.window.createWebviewPanel('timeflyAuth', 'TimeFly Authentication', vscode.ViewColumn.One, {
+const handleApiKeyInput = async (context: vscode.ExtensionContext): Promise<void> => {
+  const panel = vscode.window.createWebviewPanel('timeflyApiKey', 'TimeFly API Key', vscode.ViewColumn.One, {
     enableScripts: true,
     retainContextWhenHidden: true,
   })
@@ -55,7 +55,7 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>TimeFly Authentication</title>
+      <title>TimeFly API Key</title>
       <style>
         body {
           font-family: var(--vscode-font-family);
@@ -119,30 +119,29 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
     </head>
     <body>
       <div class="container">
-        <h1>TimeFly Authentication</h1>
-        <p>Click the button below to authenticate with TimeFly:</p>
-        <a href="${CONFIG.AUTH.LOGIN_URL}" class="button" target="_blank">Login with Google</a>
+        <h1>TimeFly API Key</h1>
+        <p>Enter your TimeFly API key to sync your data:</p>
         <div class="info">
-          <p>After logging in, you will receive an access token. Copy and paste it here:</p>
-          <input type="text" id="tokenInput" placeholder="Paste your access token here">
-          <button id="saveToken" class="button" style="margin-top: 10px;">Save Token</button>
+          <p>You can find your API key in your TimeFly user profile.</p>
+          <input type="text" id="apiKeyInput" placeholder="Enter your API key here">
+          <button id="saveApiKey" class="button" style="margin-top: 10px;">Save API Key</button>
           <div id="status" class="status"></div>
         </div>
       </div>
       <script>
         const vscode = acquireVsCodeApi();
         
-        document.getElementById('saveToken').addEventListener('click', () => {
-          const token = document.getElementById('tokenInput').value.trim();
-          if (token) {
+        document.getElementById('saveApiKey').addEventListener('click', () => {
+          const apiKey = document.getElementById('apiKeyInput').value.trim();
+          if (apiKey) {
             vscode.postMessage({
-              type: 'saveToken',
-              token: token
+              type: 'saveApiKey',
+              apiKey: apiKey
             });
             
             // Show saving status
             const status = document.getElementById('status');
-            status.textContent = 'Saving token...';
+            status.textContent = 'Saving API key...';
             status.className = 'status';
             status.style.display = 'block';
           }
@@ -154,19 +153,19 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
           const status = document.getElementById('status');
           
           if (message.type === 'saveSuccess') {
-            status.textContent = 'Token saved successfully! You can close this window.';
+            status.textContent = 'API key saved successfully! You can close this window.';
             status.className = 'status success';
             status.style.display = 'block';
             
             // Clear the input
-            document.getElementById('tokenInput').value = '';
+            document.getElementById('apiKeyInput').value = '';
             
             // Close the panel after 3 seconds
             setTimeout(() => {
               vscode.postMessage({ type: 'close' });
             }, 3000);
           } else if (message.type === 'saveError') {
-            status.textContent = 'Error saving token: ' + message.error;
+            status.textContent = 'Error saving API key: ' + message.error;
             status.className = 'status error';
             status.style.display = 'block';
           }
@@ -178,9 +177,9 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
 
   panel.webview.onDidReceiveMessage(
     async message => {
-      if (message.type === 'saveToken') {
+      if (message.type === 'saveApiKey') {
         try {
-          await saveAuthToken(message.token, context)
+          await saveApiKey(message.apiKey, context)
 
           // Send success message back to webview
           panel.webview.postMessage({ type: 'saveSuccess' })
@@ -196,7 +195,7 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
             error: error instanceof Error ? error.message : 'Unknown error',
           })
 
-          vscode.window.showErrorMessage('TimeFly: Failed to save authentication token')
+          vscode.window.showErrorMessage('TimeFly: Failed to save API key')
         }
       } else if (message.type === 'close') {
         panel.dispose()
@@ -208,19 +207,19 @@ const handleAuthCallback = async (context: vscode.ExtensionContext): Promise<voi
 }
 
 /**
- * Registers authentication commands
+ * Registers API key commands
  * @param context - The VSCode extension context
  */
-export const registerAuthCommands = (context: vscode.ExtensionContext): void => {
-  authLogger.debug('Registering authentication commands')
+export const registerApiKeyCommands = (context: vscode.ExtensionContext): void => {
+  apiKeyLogger.debug('Registering API key commands')
 
   // Store the context in the global variable
   extensionContext = context
 
-  context.subscriptions.push(vscode.commands.registerCommand('timefly.authenticate', () => handleAuthCallback(context)))
+  context.subscriptions.push(vscode.commands.registerCommand('timefly.addApiKey', () => handleApiKeyInput(context)))
 
   // Add keys to sync
-  context.globalState.setKeysForSync([CONFIG.AUTH.TOKEN_KEY])
+  context.globalState.setKeysForSync([CONFIG.API_KEY.KEY_STORAGE])
 
-  authLogger.info('Authentication commands registered successfully')
+  apiKeyLogger.info('API key commands registered successfully')
 }
