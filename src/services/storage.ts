@@ -10,6 +10,7 @@ const TODAY_TOTAL_KEY = 'timefly.todayTotal'
 const LAST_SYNC_KEY = 'timefly.lastSync'
 const TODAY_DATE_KEY = 'timefly.todayDate'
 const SYNC_STATUS_KEY = 'timefly.syncStatus'
+const LAST_UPDATE_KEY = 'timefly.lastUpdate'
 
 // Create a module-specific logger
 const storageLogger = logger.createChildLogger('Storage')
@@ -21,9 +22,11 @@ const storageLogger = logger.createChildLogger('Storage')
  */
 const resetDailyCounters = (storage: vscode.Memento): Promise<void> => {
   storageLogger.debug('Resetting daily counters')
-  return Promise.all([storage.update(TODAY_TOTAL_KEY, 0), storage.update(TODAY_DATE_KEY, getCurrentDateString())]).then(
-    () => undefined,
-  )
+  return Promise.all([
+    storage.update(TODAY_TOTAL_KEY, 0), 
+    storage.update(TODAY_DATE_KEY, getCurrentDateString()),
+    storage.update(LAST_UPDATE_KEY, Date.now()),
+  ]).then(() => undefined)
 }
 
 /**
@@ -53,6 +56,20 @@ export const createStorageService = (storage: vscode.Memento) => {
   checkDayChange(storage).catch(error =>
     storageLogger.error('Error checking day change during initialization', error),
   )
+
+  // Set up polling to check for updates from other instances
+  let lastKnownUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
+  
+  // Poll for changes every 5 seconds
+  const pollInterval = setInterval(() => {
+    const currentUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
+    
+    // If another instance has updated the total time, refresh our local cache
+    if (currentUpdate > lastKnownUpdate) {
+      storageLogger.debug(`Detected update from another instance (${new Date(currentUpdate).toISOString()})`)
+      lastKnownUpdate = currentUpdate
+    }
+  }, 5000)
 
   return {
     savePulses: (pulses: ReadonlyArray<Pulse>): Promise<void> => {
@@ -103,13 +120,33 @@ export const createStorageService = (storage: vscode.Memento) => {
     },
 
     saveTodayTotal: (total: number): Promise<void> => {
-      storageLogger.debug(`Saving today's total: ${total}ms`)
-      return checkDayChange(storage).then(() => Promise.resolve(storage.update(TODAY_TOTAL_KEY, total)))
+      return checkDayChange(storage).then(() => {
+        const currentTotal = storage.get<number>(TODAY_TOTAL_KEY) || 0
+        
+        // Only update if the new total is greater than the current total
+        // This prevents race conditions between instances
+        if (total > currentTotal) {
+          storageLogger.debug(`Saving today's total: ${total}ms (was ${currentTotal}ms)`)
+          
+          // Update the last update timestamp to notify other instances
+          const now = Date.now()
+          lastKnownUpdate = now
+          
+          return Promise.all([
+            storage.update(TODAY_TOTAL_KEY, total),
+            storage.update(LAST_UPDATE_KEY, now),
+          ]).then(() => undefined)
+        }
+        
+        return Promise.resolve()
+      })
     },
 
     getTodayTotal: (): number => {
       // Check day change but don't wait for the promise
       checkDayChange(storage).catch(error => storageLogger.error('Error checking day change', error))
+      
+      // Always get the latest value from storage
       const total = storage.get<number>(TODAY_TOTAL_KEY) || 0
       storageLogger.debug(`Retrieved today's total: ${total}ms`)
       return total
@@ -159,6 +196,10 @@ export const createStorageService = (storage: vscode.Memento) => {
 
       storageLogger.debug(`Updating sync status: ${JSON.stringify(status)}`)
       return Promise.resolve(storage.update(SYNC_STATUS_KEY, updateObject(currentStatus, status)))
+    },
+    
+    dispose: (): void => {
+      clearInterval(pollInterval)
     },
   }
 }

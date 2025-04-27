@@ -29,8 +29,10 @@ const detectState = (editor: vscode.TextEditor | undefined): ActivityState => {
   return vscode.debug.activeDebugSession ? 'debugging' : 'coding'
 }
 
+// Variable to store services for external access
 let globalSyncService: any = null
 let globalPulseService: any = null
+let globalStorageService: any = null
 
 /**
  * Activates the extension
@@ -63,6 +65,7 @@ export function activate (context: vscode.ExtensionContext): any {
 
     globalSyncService = syncService
     globalPulseService = pulseService
+    globalStorageService = storageService
 
     // Register commands
     registerDebugCommands(context, pulseService)
@@ -207,6 +210,7 @@ export function activate (context: vscode.ExtensionContext): any {
         clearInterval(idleInterval)
         clearInterval(statusInterval)
         pulseService.dispose()
+        storageService.dispose()
         logger.debug('Intervals and services disposed')
       },
     })

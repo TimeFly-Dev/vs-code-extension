@@ -70,7 +70,7 @@ export interface SyncStatus {
   syncCount: number
   isOnline: boolean
   apiStatus: 'ok' | 'error' | 'unknown'
-  pendingPulses: number // Número de pulsos pendientes de sincronización
+  pendingPulses: number 
 }
 
 /**
@@ -126,6 +126,7 @@ export interface StorageService {
   setLastSyncTime: (time: number) => Promise<void>
   getSyncStatus: () => SyncStatus
   updateSyncStatus: (status: Partial<SyncStatus>) => Promise<void>
+  dispose: () => void
 }
 
 /**
