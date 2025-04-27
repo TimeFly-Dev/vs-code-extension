@@ -1,6 +1,6 @@
 {
-  "name": "timefly",
-  "displayName": "TimeFly",
+  "name": "timeflydev",
+  "displayName": "TimeFly Dev",
   "description": "Track your coding time and activity",
   "version": "1.1.0",
   "engines": {
