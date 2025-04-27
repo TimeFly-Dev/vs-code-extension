@@ -1,11 +1,7 @@
 import type { Pulse, AggregatedPulse, StorageService } from '../types'
-import { logger } from '../utils/logger'
 import { CONFIG } from '../config'
 import * as vscode from 'vscode'
-import { getExtensionContext } from '../commands/apiKey'
-
-// Create a module-specific logger
-const syncLogger = logger.createChildLogger('Sync')
+import { logger } from '../utils/logger'
 
 // Define the response type
 interface SyncResponse {
@@ -19,20 +15,28 @@ interface SyncResponse {
  * Gets the API key from VSCode global state
  * @returns A promise that resolves to the API key or null if not found
  */
-const getApiKey = async (): Promise<string | null> => {
+const getApiKey = async (context: vscode.ExtensionContext): Promise<string | null> => {
   try {
-    const context = getExtensionContext()
-    if (context) {
-      const apiKey = context.globalState.get(CONFIG.API_KEY.KEY_STORAGE) as string | undefined
-      if (apiKey) {
-        syncLogger.debug('Found API key in global state')
-        return apiKey
-      }
+    const apiKey = context.globalState.get(CONFIG.API_KEY.KEY_STORAGE) as string | undefined
+
+    if (!apiKey) {
+      logger.warn('No API key found in storage')
+      return null
     }
 
-    return null
+    // Log the first few characters of the API key for debugging
+    logger.info(`Retrieved API key from storage: ${apiKey.substring(0, 8)}...`)
+
+    // Validate that it looks like an API key
+    const apiKeyRegex = /^[0-9a-f]{32,}$/i
+    if (!apiKeyRegex.test(apiKey)) {
+      logger.warn(`Invalid API key format in storage: ${apiKey.substring(0, 8)}...`)
+      return null
+    }
+
+    return apiKey
   } catch (error) {
-    syncLogger.error('Error getting API key:', error)
+    logger.error('Error getting API key:', error)
     return null
   }
 }
@@ -43,7 +47,6 @@ const getApiKey = async (): Promise<string | null> => {
 const showApiKeyNotification = () => {
   vscode.window.showWarningMessage('TimeFly needs an API key to sync your data.', 'Add API Key').then(selection => {
     if (selection === 'Add API Key') {
-      // Show the API key input panel
       vscode.commands.executeCommand('timefly.addApiKey')
     }
   })
@@ -53,73 +56,110 @@ const showApiKeyNotification = () => {
  * Syncs pulses and aggregated pulses to the backend
  * @param pulses - The pulses to sync
  * @param aggregatedPulses - The aggregated pulses to sync
+ * @param context - The VSCode extension context
  * @returns A promise that resolves to true if sync was successful
+ * @throws Error if sync fails
  */
 const syncToBackend = async (
   pulses: ReadonlyArray<Pulse>,
   aggregatedPulses: ReadonlyArray<AggregatedPulse>,
+  context: vscode.ExtensionContext,
 ): Promise<boolean> => {
-  syncLogger.debug(
-    `Syncing ${pulses.length} pulses and ${aggregatedPulses.length} aggregated pulses to ${CONFIG.API_ENDPOINT}`,
-  )
+  // Get the API endpoint from configuration or use the default
+  const config = vscode.workspace.getConfiguration('timefly')
+  const apiEndpoint = config.get<string>('apiEndpoint', CONFIG.API_ENDPOINT)
 
   // Get API key
-  const apiKey = await getApiKey()
+  const apiKey = await getApiKey(context)
 
   if (!apiKey) {
-    syncLogger.warn('No API key found')
+    logger.warn('No valid API key found, showing notification')
     showApiKeyNotification()
     return false
   }
 
   try {
-    const response = await fetch(CONFIG.API_ENDPOINT, {
+    logger.info(`Syncing to backend: ${apiEndpoint}`)
+    logger.info(`Using API key: ${apiKey.substring(0, 8)}...`)
+    logger.info(`Syncing ${pulses.length} pulses and ${aggregatedPulses.length} aggregated pulses`)
+
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': apiKey,
       },
       body: JSON.stringify({
-        data: [...pulses, ...aggregatedPulses], // Send both types of pulses
-        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 24 hours ago
+        data: [...pulses, ...aggregatedPulses],
+        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
         end: new Date().toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
     })
 
     if (!response.ok) {
-      throw new Error(`Sync failed with status: ${response.status}`)
+      let errorDetails = `Status: ${response.status} ${response.statusText}`
+
+      try {
+        const contentType = response.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
+          const errorJson = await response.json()
+          errorDetails += `, Details: ${JSON.stringify(errorJson)}`
+        } else {
+          const text = await response.text()
+          const preview = text.substring(0, 100) + (text.length > 100 ? '...' : '')
+          errorDetails += `, Response: ${preview}`
+        }
+      } catch (parseError) {
+        errorDetails += ', Could not parse response'
+      }
+
+      logger.error(`Sync failed: ${errorDetails}`)
+      throw new Error(`Sync failed: ${errorDetails}`)
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const text = await response.text()
+      const preview = text.substring(0, 100) + (text.length > 100 ? '...' : '')
+      logger.error(`Expected JSON response but got: ${contentType}, Preview: ${preview}`)
+      throw new Error(`Expected JSON response but got: ${contentType}, Preview: ${preview}`)
     }
 
     const result = (await response.json()) as SyncResponse
-    syncLogger.info(`Successfully synced ${result.syncedCount || pulses.length + aggregatedPulses.length} items`)
+
+    if (!result.success) {
+      logger.error(`API returned error: ${result.message}`)
+      throw new Error(`API returned error: ${result.message}`)
+    }
+
+    logger.info(`Sync successful: ${result.message}`)
     return true
   } catch (error) {
-    syncLogger.error('Sync failed:', error)
-    return false
+    logger.error('Error during sync:', error)
+    throw error
   }
 }
 
 /**
  * Performs synchronization of pending pulses and aggregated pulses
  * @param storageService - The storage service
+ * @param context - The VSCode extension context
  * @returns A promise that resolves when sync is complete
  */
-const performSync = (storageService: StorageService): Promise<void> => {
+const performSync = (storageService: StorageService, context: vscode.ExtensionContext): Promise<void> => {
   const pendingPulses = storageService.getPendingPulses()
   const aggregatedPulses = storageService.getAggregatedPulses()
 
   if (pendingPulses.length === 0 && aggregatedPulses.length === 0) {
-    syncLogger.debug('No pulses to sync')
+    logger.info('No pending pulses to sync')
     return Promise.resolve()
   }
 
-  syncLogger.debug(`Attempting to sync ${pendingPulses.length} pulses and ${aggregatedPulses.length} aggregated pulses`)
-
   // Check if we have an API key before attempting to sync
-  return getApiKey().then(apiKey => {
+  return getApiKey(context).then(apiKey => {
     if (!apiKey) {
-      syncLogger.warn('No API key found, skipping sync')
+      logger.warn('No valid API key found for sync')
       showApiKeyNotification()
       return storageService.updateSyncStatus({
         isOnline: false,
@@ -132,66 +172,83 @@ const performSync = (storageService: StorageService): Promise<void> => {
 
     // We have an API key, proceed with sync
     const attemptSync = (retryCount: number): Promise<void> =>
-      syncToBackend(pendingPulses, aggregatedPulses).then(success => {
-        if (success) {
-          return Promise.all([
-            storageService.clearSyncedPulses(pendingPulses),
-            storageService.clearSyncedAggregatedPulses(aggregatedPulses),
-          ]).then(() => {
-            const now = Date.now()
-            syncLogger.info(`Sync successful, next sync in ${CONFIG.SYNC.INTERVAL / 60000} minutes`)
-            return storageService.updateSyncStatus({
-              lastSyncTime: now,
-              nextSyncTime: now + CONFIG.SYNC.INTERVAL,
-              syncCount: (storageService.getSyncStatus().syncCount || 0) + 1,
-              isOnline: true,
-              apiStatus: 'ok',
-              pendingPulses: 0,
+      syncToBackend(pendingPulses, aggregatedPulses, context)
+        .then(success => {
+          if (success) {
+            logger.info('Sync successful, clearing synced pulses')
+            return Promise.all([
+              storageService.clearSyncedPulses(pendingPulses),
+              storageService.clearSyncedAggregatedPulses(aggregatedPulses),
+            ]).then(() => {
+              const now = Date.now()
+              return storageService.updateSyncStatus({
+                lastSyncTime: now,
+                nextSyncTime: now + CONFIG.SYNC.INTERVAL,
+                syncCount: (storageService.getSyncStatus().syncCount || 0) + 1,
+                isOnline: true,
+                apiStatus: 'ok',
+                pendingPulses: 0,
+              })
             })
-          })
-        }
+          }
 
-        if (retryCount < CONFIG.SYNC.MAX_RETRY_ATTEMPTS) {
-          const backoffTime = Math.pow(2, retryCount) * CONFIG.SYNC.INITIAL_BACKOFF
-          syncLogger.warn(`Sync attempt ${retryCount + 1} failed, retrying in ${backoffTime / 1000}s`)
-          return new Promise(resolve => setTimeout(() => resolve(attemptSync(retryCount + 1)), backoffTime))
-        }
+          logger.error('Sync failed without specific error')
+          throw new Error('Sync failed without specific error')
+        })
+        .catch(error => {
+          if (retryCount < CONFIG.SYNC.MAX_RETRY_ATTEMPTS) {
+            const backoffTime = Math.pow(2, retryCount) * CONFIG.SYNC.INITIAL_BACKOFF
+            logger.info(
+              `Retrying sync in ${backoffTime}ms (attempt ${retryCount + 1} of ${CONFIG.SYNC.MAX_RETRY_ATTEMPTS})`,
+            )
+            return new Promise(resolve => setTimeout(() => resolve(attemptSync(retryCount + 1)), backoffTime))
+          }
 
-        syncLogger.error(`Sync failed after ${CONFIG.SYNC.MAX_RETRY_ATTEMPTS} attempts`)
-        return storageService.updateSyncStatus({
+          // Propagate the error to the caller
+          logger.error(`Max retry attempts (${CONFIG.SYNC.MAX_RETRY_ATTEMPTS}) reached, giving up`)
+          throw error
+        })
+
+    return attemptSync(0).catch(error => {
+      // Update sync status to reflect the failure
+      logger.error('Sync failed after all retry attempts:', error)
+      return storageService
+        .updateSyncStatus({
           isOnline: false,
           apiStatus: 'error',
-          // Keep the existing timestamps if they're valid, otherwise use current time
           lastSyncTime:
             storageService.getSyncStatus().lastSyncTime > 0 ? storageService.getSyncStatus().lastSyncTime : Date.now(),
           nextSyncTime: Date.now() + CONFIG.SYNC.INTERVAL,
           pendingPulses: pendingPulses.length + aggregatedPulses.length,
         })
-      })
-
-    return attemptSync(0)
+        .then(() => {
+          // Re-throw the error to be handled by the caller
+          throw error
+        })
+    })
   })
 }
 
 /**
  * Creates a sync service for synchronizing pulses with the backend
  * @param storageService - The storage service
- * @returns A sync service instance
+ * @param context - The VSCode extension context
+ * @returns a sync service instance
  */
-export const createSyncService = (storageService: StorageService) => {
+export const createSyncService = (storageService: StorageService, context: vscode.ExtensionContext) => {
   let syncInterval: NodeJS.Timeout | null = null
+  let syncEnabled = true
 
   // Try to sync any pending pulses on startup
   const syncOnStartup = () => {
-    syncLogger.info('Checking for pending pulses on startup')
     const pendingPulses = storageService.getPendingPulses()
     const aggregatedPulses = storageService.getAggregatedPulses()
 
     if (pendingPulses.length > 0 || aggregatedPulses.length > 0) {
-      syncLogger.info(
-        `Found ${pendingPulses.length} pending pulses and ${aggregatedPulses.length} aggregated pulses from previous session, attempting to sync`,
-      )
-      return performSync(storageService)
+      logger.info('Pending pulses found on startup, attempting sync')
+      return performSync(storageService, context).catch(error => {
+        logger.error('Error during startup sync:', error)
+      })
     }
 
     return Promise.resolve()
@@ -202,35 +259,57 @@ export const createSyncService = (storageService: StorageService) => {
 
   return {
     syncPulses: () => {
-      syncLogger.debug('Manual sync triggered')
-      return performSync(storageService)
+      if (!syncEnabled) {
+        logger.warn('Sync is disabled, skipping manual sync')
+        vscode.window.showWarningMessage('TimeFly: Sync is currently disabled. Enable it in settings.')
+        return Promise.reject(new Error('Sync is disabled'))
+      }
+
+      logger.info('Manual sync requested')
+      return performSync(storageService, context)
     },
 
     scheduleSync: () => {
       if (syncInterval) {
-        syncLogger.debug('Sync already scheduled, skipping')
+        logger.info('Sync already scheduled, skipping')
         return
       }
 
-      syncLogger.info(`Scheduling sync every ${CONFIG.SYNC.INTERVAL / 60000} minutes`)
-      performSync(storageService)
+      logger.info('Scheduling regular sync')
+      // Don't wait for the first sync to complete
+      performSync(storageService, context).catch(error => {
+        logger.error('Error during initial scheduled sync:', error)
+      })
 
       syncInterval = setInterval(() => {
-        syncLogger.debug('Running scheduled sync')
-        performSync(storageService)
+        if (!syncEnabled) {
+          logger.debug('Sync disabled, skipping scheduled sync')
+          return
+        }
+
+        logger.info('Running scheduled sync')
+        performSync(storageService, context).catch(error => {
+          logger.error('Error during scheduled sync:', error)
+        })
       }, CONFIG.SYNC.INTERVAL)
     },
 
     stopSync: () => {
       if (syncInterval) {
-        syncLogger.info('Stopping scheduled sync')
+        logger.info('Stopping scheduled sync')
         clearInterval(syncInterval)
         syncInterval = null
       }
 
-      // Perform one final sync before stopping
-      syncLogger.info('Performing final sync before stopping')
-      return performSync(storageService)
+      // Only perform final sync if sync is enabled
+      if (syncEnabled) {
+        logger.info('Performing final sync before stopping')
+        return performSync(storageService, context).catch(error => {
+          logger.error('Error during final sync:', error)
+        })
+      }
+
+      return Promise.resolve()
     },
 
     getSyncInfo: () => {
@@ -250,10 +329,24 @@ export const createSyncService = (storageService: StorageService) => {
       // Update pending pulses count (include both types)
       status.pendingPulses = pendingPulses + pendingAggregatedPulses
 
-      return status
+      return {
+        ...status,
+        syncEnabled,
+      }
     },
+
+    enableSync: () => {
+      syncEnabled = true
+      logger.info('Sync enabled')
+      vscode.window.showInformationMessage('TimeFly: Sync enabled')
+    },
+
+    disableSync: () => {
+      syncEnabled = false
+      logger.info('Sync disabled')
+      vscode.window.showInformationMessage('TimeFly: Sync disabled')
+    },
+
+    isSyncEnabled: () => syncEnabled,
   }
 }
-
-// Export the type
-export type { SyncService } from '../types'

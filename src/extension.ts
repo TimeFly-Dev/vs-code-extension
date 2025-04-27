@@ -4,15 +4,13 @@ import { createStorageService } from './services/storage'
 import { createSyncService } from './services/sync'
 import { createSystemService } from './services/system'
 import { createStatusBarItem, updateStatusBar } from './ui/statusBar'
-import { registerDebugCommands } from './commands/debug'
-import { logger } from './utils/logger'
-import type { ActivityState } from './types'
 import { registerApiKeyCommands } from './commands/apiKey'
+import type { ActivityState } from './types'
+import { CONFIG } from './config'
 
 const IDLE_CHECK_INTERVAL = 60000 // Check for idle every minute
 const STATUS_BAR_UPDATE_INTERVAL = 1000 // Update status bar every second
 const ACTIVITY_THRESHOLD = 2000 // Minimum time between activity updates (2 seconds)
-// Update the IDLE_THRESHOLD to 2 minutes in milliseconds
 const IDLE_THRESHOLD = 120000 // 2 minutes in milliseconds
 
 /**
@@ -32,48 +30,43 @@ const detectState = (editor: vscode.TextEditor | undefined): ActivityState => {
 // Variable to store services for external access
 let globalSyncService: any = null
 let globalPulseService: any = null
-let globalStorageService: any = null
+
+// Track if the extension has been activated
+let isActivated = false
 
 /**
  * Activates the extension
  * @param context - The VSCode extension context
  */
 export function activate (context: vscode.ExtensionContext): any {
-  logger.info('Activating TimeFly extension')
-
-  // Check if debug mode is enabled via configuration
-  const config = vscode.workspace.getConfiguration('timefly')
-  const debugMode = config.get<boolean>('debugMode', false)
-
-  if (debugMode) {
-    logger.setLevel('debug')
-    logger.enable()
-    logger.debug('Debug mode enabled')
+  // Prevent multiple activations
+  if (isActivated) {
+    return {
+      getSyncService: () => globalSyncService,
+      getPulseService: () => globalPulseService,
+    }
   }
+
+  isActivated = true
 
   try {
     const statusBarItem = createStatusBarItem()
     context.subscriptions.push(statusBarItem)
-    logger.debug('Status bar item created')
 
     // Initialize services
     const storageService = createStorageService(context.globalState)
-    const syncService = createSyncService(storageService)
+    const syncService = createSyncService(storageService, context)
     const systemService = createSystemService()
     const pulseService = createPulseService(storageService, syncService, systemService)
-    logger.debug('Services initialized')
 
     globalSyncService = syncService
     globalPulseService = pulseService
-    globalStorageService = storageService
 
-    // Register commands
-    registerDebugCommands(context, pulseService)
+    // Register API key commands
     registerApiKeyCommands(context)
 
     // Start sync scheduling
     syncService.scheduleSync()
-    logger.debug('Sync scheduled')
 
     // Update the trackEditorActivity function to properly handle idle time
     const trackEditorActivity = (() => {
@@ -95,13 +88,11 @@ export function activate (context: vscode.ExtensionContext): any {
         // Set a new idle timeout
         idleTimeoutId = setTimeout(() => {
           // After IDLE_THRESHOLD, mark as inactive
-          logger.debug('User became inactive due to idle timeout')
           updateStatusBar(statusBarItem, pulseService)
           idleTimeoutId = null
         }, IDLE_THRESHOLD)
 
         const state = detectState(editor)
-        logger.debug(`Activity detected: ${state}`)
         return pulseService.trackActivity(editor, state).then(() => {
           updateStatusBar(statusBarItem, pulseService)
         })
@@ -111,7 +102,6 @@ export function activate (context: vscode.ExtensionContext): any {
     // Track when the active editor changes
     context.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor(editor => {
-        logger.debug('Editor changed')
         trackEditorActivity(editor)
       }),
     )
@@ -120,7 +110,6 @@ export function activate (context: vscode.ExtensionContext): any {
     context.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument(event => {
         if (event.document === vscode.window.activeTextEditor?.document) {
-          logger.debug('Document changed')
           trackEditorActivity(vscode.window.activeTextEditor)
         }
       }),
@@ -129,7 +118,6 @@ export function activate (context: vscode.ExtensionContext): any {
     // Track when the cursor position changes
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
-        logger.debug('Selection changed')
         trackEditorActivity(event.textEditor)
       }),
     )
@@ -137,69 +125,147 @@ export function activate (context: vscode.ExtensionContext): any {
     // Track when a debug session starts or ends
     context.subscriptions.push(
       vscode.debug.onDidStartDebugSession(() => {
-        logger.debug('Debug session started')
         trackEditorActivity(vscode.window.activeTextEditor)
       }),
       vscode.debug.onDidTerminateDebugSession(() => {
-        logger.debug('Debug session ended')
         trackEditorActivity(vscode.window.activeTextEditor)
       }),
     )
 
     // Initial activity tracking
     trackEditorActivity(vscode.window.activeTextEditor)
-    logger.debug('Initial activity tracked')
 
-    // Update the idleInterval to use a more functional approach
-    // Replace the idleInterval setup with this
-    const setupIdleCheck = () => {
-      logger.debug('Setting up idle time checking')
-      return setInterval(() => {
-        if (!pulseService.isActive()) {
-          logger.debug('User is idle, updating status')
-          updateStatusBar(statusBarItem, pulseService)
-        }
-      }, IDLE_CHECK_INTERVAL)
-    }
-
-    const idleInterval = setupIdleCheck()
+    // Set up idle checking
+    const idleInterval = setInterval(() => {
+      if (!pulseService.isActive()) {
+        updateStatusBar(statusBarItem, pulseService)
+      }
+    }, IDLE_CHECK_INTERVAL)
 
     // Update status bar more frequently
     const statusInterval = setInterval(() => {
       updateStatusBar(statusBarItem, pulseService)
     }, STATUS_BAR_UPDATE_INTERVAL)
 
-    // Register command to toggle debug mode
+    // Register command to sync now
     context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.toggleDebugMode', () => {
-        const newDebugMode = !debugMode
-        config.update('debugMode', newDebugMode, vscode.ConfigurationTarget.Global)
+      vscode.commands.registerCommand('timefly.syncNow', async () => {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'TimeFly: Syncing data...',
+            cancellable: false,
+          },
+          async progress => {
+            try {
+              progress.report({ increment: 30, message: 'Connecting to server...' })
+              await syncService.syncPulses()
+              progress.report({ increment: 70, message: 'Sync completed' })
+              vscode.window.showInformationMessage('TimeFly: Sync completed successfully')
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+              vscode.window
+                .showErrorMessage(`TimeFly: Sync failed - ${errorMessage}`, 'Configure Endpoint', 'Disable Sync')
+                .then(selection => {
+                  if (selection === 'Configure Endpoint') {
+                    vscode.commands.executeCommand('timefly.configureApiEndpoint')
+                  } else if (selection === 'Disable Sync') {
+                    syncService.disableSync()
+                  }
+                })
+            }
+          },
+        )
+      }),
+    )
 
-        if (newDebugMode) {
-          logger.setLevel('debug')
-          logger.enable()
-          logger.info('Debug mode enabled')
-          vscode.window.showInformationMessage('TimeFly: Debug mode enabled')
-        } else {
-          logger.setLevel('info')
-          logger.info('Debug mode disabled')
-          vscode.window.showInformationMessage('TimeFly: Debug mode disabled')
+    // Register command to configure API endpoint
+    context.subscriptions.push(
+      vscode.commands.registerCommand('timefly.configureApiEndpoint', async () => {
+        const config = vscode.workspace.getConfiguration('timefly')
+        const currentEndpoint = config.get<string>('apiEndpoint', CONFIG.API_ENDPOINT)
+
+        const newEndpoint = await vscode.window.showInputBox({
+          prompt: 'Enter the TimeFly API endpoint URL',
+          value: currentEndpoint,
+          placeHolder: CONFIG.API_ENDPOINT,
+          validateInput: value => {
+            try {
+              new URL(value)
+              return null
+            } catch (e) {
+              return 'Please enter a valid URL'
+            }
+          },
+        })
+
+        if (newEndpoint && newEndpoint !== currentEndpoint) {
+          await config.update('apiEndpoint', newEndpoint, vscode.ConfigurationTarget.Global)
+          vscode.window.showInformationMessage(`TimeFly: API endpoint updated to ${newEndpoint}`)
+
+          const selection = await vscode.window.showInformationMessage(
+            'Do you want to test the connection to the new endpoint?',
+            'Yes',
+            'No',
+          )
+
+          if (selection === 'Yes') {
+            vscode.commands.executeCommand('timefly.syncNow')
+          }
         }
       }),
     )
 
-    // Register command to sync now
+    // Register command to toggle sync
     context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.syncNow', () => {
-        logger.info('Manual sync triggered via command')
-        syncService
-          .syncPulses()
-          .then(() => {
-            vscode.window.showInformationMessage('TimeFly: Sync completed')
-          })
-          .catch(error => {
-            logger.error('Error during manual sync', error)
-            vscode.window.showErrorMessage('TimeFly: Sync failed')
+      vscode.commands.registerCommand('timefly.toggleSync', () => {
+        if (syncService.isSyncEnabled()) {
+          syncService.disableSync()
+        } else {
+          syncService.enableSync()
+        }
+      }),
+    )
+
+    // Register command to show sync info
+    context.subscriptions.push(
+      vscode.commands.registerCommand('timefly.showSyncInfo', () => {
+        const syncInfo = syncService.getSyncInfo()
+        const syncStatus = syncInfo.syncEnabled !== false ? 'Enabled' : 'Disabled'
+        const lastSync = syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleString() : 'Never'
+        const nextSync = new Date(syncInfo.nextSyncTime).toLocaleString()
+        const pendingItems = syncInfo.pendingPulses
+        const apiStatus = syncInfo.apiStatus
+
+        const message = `
+Sync Status: ${syncStatus}
+Last Sync: ${lastSync}
+Next Sync: ${nextSync}
+Pending Items: ${pendingItems}
+API Status: ${apiStatus}
+      `.trim()
+
+        vscode.window
+          .showInformationMessage(
+            'TimeFly Sync Information',
+            {
+              modal: true,
+              detail: message,
+            },
+            'Configure Endpoint',
+            syncInfo.syncEnabled !== false ? 'Disable Sync' : 'Enable Sync',
+            'Sync Now',
+          )
+          .then(selection => {
+            if (selection === 'Configure Endpoint') {
+              vscode.commands.executeCommand('timefly.configureApiEndpoint')
+            } else if (selection === 'Disable Sync') {
+              syncService.disableSync()
+            } else if (selection === 'Enable Sync') {
+              syncService.enableSync()
+            } else if (selection === 'Sync Now') {
+              vscode.commands.executeCommand('timefly.syncNow')
+            }
           })
       }),
     )
@@ -211,19 +277,17 @@ export function activate (context: vscode.ExtensionContext): any {
         clearInterval(statusInterval)
         pulseService.dispose()
         storageService.dispose()
-        logger.debug('Intervals and services disposed')
+        isActivated = false
       },
     })
-
-    logger.info('TimeFly extension activated successfully')
 
     return {
       getSyncService: () => globalSyncService,
       getPulseService: () => globalPulseService,
     }
   } catch (error) {
-    logger.error('Error activating TimeFly extension', error)
-    void vscode.window.showErrorMessage('Error activating TimeFly extension')
+    vscode.window.showErrorMessage('Error activating TimeFly extension')
+    isActivated = false
     return {}
   }
 }
@@ -232,5 +296,5 @@ export function activate (context: vscode.ExtensionContext): any {
  * Deactivates the extension
  */
 export function deactivate (): void {
-  logger.info('TimeFly extension deactivated')
+  isActivated = false
 }

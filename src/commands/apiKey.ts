@@ -2,20 +2,6 @@ import * as vscode from 'vscode'
 import { CONFIG } from '../config'
 import { logger } from '../utils/logger'
 
-// Create a module-specific logger
-const apiKeyLogger = logger.createChildLogger('ApiKey')
-
-// Use a global variable to store the context
-let extensionContext: vscode.ExtensionContext | null = null
-
-/**
- * Gets the extension context
- * @returns The extension context
- */
-export const getExtensionContext = (): vscode.ExtensionContext | null => {
-  return extensionContext
-}
-
 /**
  * Saves the API key to VSCode global state
  * @param apiKey - The API key
@@ -24,16 +10,25 @@ export const getExtensionContext = (): vscode.ExtensionContext | null => {
  */
 const saveApiKey = async (apiKey: string, context: vscode.ExtensionContext): Promise<void> => {
   try {
+    // Validate that the input looks like an API key (hexadecimal string)
+    // This helps prevent saving email addresses or other invalid values
+    const apiKeyRegex = /^[0-9a-f]{32,}$/i
+    if (!apiKeyRegex.test(apiKey)) {
+      logger.warn(`Invalid API key format: ${apiKey.substring(0, 8)}...`)
+      throw new Error('Invalid API key format. Please enter a valid API key (hexadecimal string).')
+    }
+
+    logger.info(`Saving API key: ${apiKey.substring(0, 8)}...`)
     await context.globalState.update(CONFIG.API_KEY.KEY_STORAGE, apiKey)
-    apiKeyLogger.info('API key saved successfully')
+    logger.info('API key saved successfully')
 
     // Show success message and trigger a sync
     vscode.window.showInformationMessage('TimeFly: API key saved successfully! Syncing data...')
-    
+
     // Execute the syncNow command registered in extension.ts
     vscode.commands.executeCommand('timefly.syncNow')
   } catch (error) {
-    apiKeyLogger.error('Error saving API key:', error)
+    logger.error('Failed to save API key:', error)
     throw error
   }
 }
@@ -123,7 +118,8 @@ const handleApiKeyInput = async (context: vscode.ExtensionContext): Promise<void
         <p>Enter your TimeFly API key to sync your data:</p>
         <div class="info">
           <p>You can find your API key in your TimeFly user profile.</p>
-          <input type="text" id="apiKeyInput" placeholder="Enter your API key here">
+          <p><strong>Important:</strong> Enter the API key, not your email address.</p>
+          <input type="text" id="apiKeyInput" placeholder="Enter your API key here (hexadecimal string)">
           <button id="saveApiKey" class="button" style="margin-top: 10px;">Save API Key</button>
           <div id="status" class="status"></div>
         </div>
@@ -134,6 +130,16 @@ const handleApiKeyInput = async (context: vscode.ExtensionContext): Promise<void
         document.getElementById('saveApiKey').addEventListener('click', () => {
           const apiKey = document.getElementById('apiKeyInput').value.trim();
           if (apiKey) {
+            // Basic validation on the client side
+            const apiKeyRegex = /^[0-9a-f]{32,}$/i;
+            if (!apiKeyRegex.test(apiKey)) {
+              const status = document.getElementById('status');
+              status.textContent = 'Invalid API key format. Please enter a valid API key (hexadecimal string).';
+              status.className = 'status error';
+              status.style.display = 'block';
+              return;
+            }
+            
             vscode.postMessage({
               type: 'saveApiKey',
               apiKey: apiKey
@@ -211,15 +217,8 @@ const handleApiKeyInput = async (context: vscode.ExtensionContext): Promise<void
  * @param context - The VSCode extension context
  */
 export const registerApiKeyCommands = (context: vscode.ExtensionContext): void => {
-  apiKeyLogger.debug('Registering API key commands')
-
-  // Store the context in the global variable
-  extensionContext = context
-
   context.subscriptions.push(vscode.commands.registerCommand('timefly.addApiKey', () => handleApiKeyInput(context)))
 
   // Add keys to sync
   context.globalState.setKeysForSync([CONFIG.API_KEY.KEY_STORAGE])
-
-  apiKeyLogger.info('API key commands registered successfully')
 }

@@ -2,7 +2,6 @@ import type * as vscode from 'vscode'
 import type { Pulse, SyncStatus, AggregatedPulse } from '../types'
 import { hasDayChanged, getCurrentDateString } from '../utils/time'
 import { updateObject } from '../utils/functional'
-import { logger } from '../utils/logger'
 
 const PENDING_PULSES_KEY = 'timefly.pendingPulses'
 const AGGREGATED_PULSES_KEY = 'timefly.aggregatedPulses'
@@ -12,18 +11,14 @@ const TODAY_DATE_KEY = 'timefly.todayDate'
 const SYNC_STATUS_KEY = 'timefly.syncStatus'
 const LAST_UPDATE_KEY = 'timefly.lastUpdate'
 
-// Create a module-specific logger
-const storageLogger = logger.createChildLogger('Storage')
-
 /**
  * Resets daily counters in storage
  * @param storage - The VSCode storage
  * @returns A promise that resolves when the update is complete
  */
 const resetDailyCounters = (storage: vscode.Memento): Promise<void> => {
-  storageLogger.debug('Resetting daily counters')
   return Promise.all([
-    storage.update(TODAY_TOTAL_KEY, 0), 
+    storage.update(TODAY_TOTAL_KEY, 0),
     storage.update(TODAY_DATE_KEY, getCurrentDateString()),
     storage.update(LAST_UPDATE_KEY, Date.now()),
   ]).then(() => undefined)
@@ -36,10 +31,8 @@ const resetDailyCounters = (storage: vscode.Memento): Promise<void> => {
  */
 const checkDayChange = (storage: vscode.Memento): Promise<void> => {
   const storedDate = storage.get<string>(TODAY_DATE_KEY)
-  const currentDate = getCurrentDateString()
 
   if (hasDayChanged(storedDate)) {
-    storageLogger.info(`Day changed from ${storedDate || 'unknown'} to ${currentDate}`)
     return resetDailyCounters(storage)
   }
 
@@ -53,20 +46,17 @@ const checkDayChange = (storage: vscode.Memento): Promise<void> => {
  */
 export const createStorageService = (storage: vscode.Memento) => {
   // Check day change on initialization
-  checkDayChange(storage).catch(error =>
-    storageLogger.error('Error checking day change during initialization', error),
-  )
+  checkDayChange(storage).catch(error => console.error('Error checking day change during initialization', error))
 
   // Set up polling to check for updates from other instances
   let lastKnownUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
-  
+
   // Poll for changes every 5 seconds
   const pollInterval = setInterval(() => {
     const currentUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
-    
+
     // If another instance has updated the total time, refresh our local cache
     if (currentUpdate > lastKnownUpdate) {
-      storageLogger.debug(`Detected update from another instance (${new Date(currentUpdate).toISOString()})`)
       lastKnownUpdate = currentUpdate
     }
   }, 5000)
@@ -74,7 +64,6 @@ export const createStorageService = (storage: vscode.Memento) => {
   return {
     savePulses: (pulses: ReadonlyArray<Pulse>): Promise<void> => {
       const existing = storage.get<Pulse[]>(PENDING_PULSES_KEY) || []
-      storageLogger.debug(`Saving ${pulses.length} pulses, existing: ${existing.length}`)
 
       // Remove content field before saving to reduce storage size
       const pulsesToSave = pulses.map(pulse => {
@@ -87,7 +76,6 @@ export const createStorageService = (storage: vscode.Memento) => {
 
     getPendingPulses: (): ReadonlyArray<Pulse> => {
       const pulses = storage.get<Pulse[]>(PENDING_PULSES_KEY) || []
-      storageLogger.debug(`Retrieved ${pulses.length} pending pulses`)
       return pulses
     },
 
@@ -95,19 +83,16 @@ export const createStorageService = (storage: vscode.Memento) => {
       const pending = storage.get<Pulse[]>(PENDING_PULSES_KEY) || []
       const syncedIds = new Set(syncedPulses.map(p => p.time))
       const remaining = pending.filter(p => !syncedIds.has(p.time))
-      storageLogger.debug(`Clearing ${syncedPulses.length} synced pulses, remaining: ${remaining.length}`)
       return Promise.resolve(storage.update(PENDING_PULSES_KEY, remaining))
     },
 
     saveAggregatedPulses: (pulses: ReadonlyArray<AggregatedPulse>): Promise<void> => {
       const existing = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
-      storageLogger.debug(`Saving ${pulses.length} aggregated pulses, existing: ${existing.length}`)
       return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, [...existing, ...pulses]))
     },
 
     getAggregatedPulses: (): ReadonlyArray<AggregatedPulse> => {
       const pulses = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
-      storageLogger.debug(`Retrieved ${pulses.length} aggregated pulses`)
       return pulses
     },
 
@@ -115,51 +100,44 @@ export const createStorageService = (storage: vscode.Memento) => {
       const pending = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
       const syncedIds = new Set(syncedPulses.map(p => p.start_time))
       const remaining = pending.filter(p => !syncedIds.has(p.start_time))
-      storageLogger.debug(`Clearing ${syncedPulses.length} synced aggregated pulses, remaining: ${remaining.length}`)
       return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, remaining))
     },
 
     saveTodayTotal: (total: number): Promise<void> => {
       return checkDayChange(storage).then(() => {
         const currentTotal = storage.get<number>(TODAY_TOTAL_KEY) || 0
-        
+
         // Only update if the new total is greater than the current total
         // This prevents race conditions between instances
         if (total > currentTotal) {
-          storageLogger.debug(`Saving today's total: ${total}ms (was ${currentTotal}ms)`)
-          
           // Update the last update timestamp to notify other instances
           const now = Date.now()
           lastKnownUpdate = now
-          
-          return Promise.all([
-            storage.update(TODAY_TOTAL_KEY, total),
-            storage.update(LAST_UPDATE_KEY, now),
-          ]).then(() => undefined)
+
+          return Promise.all([storage.update(TODAY_TOTAL_KEY, total), storage.update(LAST_UPDATE_KEY, now)]).then(
+            () => undefined,
+          )
         }
-        
+
         return Promise.resolve()
       })
     },
 
     getTodayTotal: (): number => {
       // Check day change but don't wait for the promise
-      checkDayChange(storage).catch(error => storageLogger.error('Error checking day change', error))
-      
+      checkDayChange(storage).catch(error => console.error('Error checking day change', error))
+
       // Always get the latest value from storage
       const total = storage.get<number>(TODAY_TOTAL_KEY) || 0
-      storageLogger.debug(`Retrieved today's total: ${total}ms`)
       return total
     },
 
     getLastSyncTime: (): number => {
       const time = storage.get<number>(LAST_SYNC_KEY) || 0
-      storageLogger.debug(`Retrieved last sync time: ${new Date(time).toISOString()}`)
       return time
     },
 
     setLastSyncTime: (time: number): Promise<void> => {
-      storageLogger.debug(`Setting last sync time: ${new Date(time).toISOString()}`)
       return Promise.resolve(storage.update(LAST_SYNC_KEY, time))
     },
 
@@ -171,16 +149,21 @@ export const createStorageService = (storage: vscode.Memento) => {
         isOnline: true,
         apiStatus: 'unknown',
         pendingPulses: 0,
+        syncEnabled: true, // Añadido syncEnabled con valor por defecto true
       }
 
       const status = storage.get<SyncStatus>(SYNC_STATUS_KEY) || defaultStatus
-      
+
       // Ensure pendingPulses is initialized
       if (status.pendingPulses === undefined) {
         status.pendingPulses = 0
       }
-      
-      storageLogger.debug(`Retrieved sync status: ${JSON.stringify(status)}`)
+
+      // Ensure syncEnabled is initialized
+      if (status.syncEnabled === undefined) {
+        status.syncEnabled = true
+      }
+
       return status
     },
 
@@ -192,12 +175,12 @@ export const createStorageService = (storage: vscode.Memento) => {
         isOnline: true,
         apiStatus: 'unknown',
         pendingPulses: 0,
+        syncEnabled: true, // Añadido syncEnabled con valor por defecto true
       }
 
-      storageLogger.debug(`Updating sync status: ${JSON.stringify(status)}`)
       return Promise.resolve(storage.update(SYNC_STATUS_KEY, updateObject(currentStatus, status)))
     },
-    
+
     dispose: (): void => {
       clearInterval(pollInterval)
     },

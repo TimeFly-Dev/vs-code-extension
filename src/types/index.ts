@@ -28,7 +28,7 @@ export interface Pulse {
   lineno?: number
   cursorpos?: number
   is_write: boolean
-  content?: string // Add content field to store the file content
+  content?: string
 }
 
 /**
@@ -70,7 +70,8 @@ export interface SyncStatus {
   syncCount: number
   isOnline: boolean
   apiStatus: 'ok' | 'error' | 'unknown'
-  pendingPulses: number 
+  pendingPulses: number
+  syncEnabled: boolean
 }
 
 /**
@@ -135,8 +136,11 @@ export interface StorageService {
 export interface SyncService {
   syncPulses: () => Promise<void>
   scheduleSync: () => void
-  stopSync: () => void
+  stopSync: () => Promise<void>
   getSyncInfo: () => SyncStatus
+  enableSync: () => void
+  disableSync: () => void
+  isSyncEnabled: () => boolean
 }
 
 /**
@@ -154,8 +158,7 @@ export interface PulseService {
   getPulseSummary: () => PulseSummary
   getTodayTotal: () => string
   getSyncInfo: () => SyncStatus
-  isActive: () => boolean // Add method to check if user is active
-  getActivityInfo: () => ActivityInfo // Add method to get activity information
-  reset: () => Promise<void> // Add method to reset the service state
+  isActive: () => boolean
+  getActivityInfo: () => ActivityInfo
   dispose: () => void
 }

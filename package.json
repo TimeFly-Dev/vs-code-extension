@@ -1,7 +1,7 @@
 {
-  "name": "timeflydev",
-  "displayName": "TimeFly Dev",
-  "description": "Track your coding habits",
+  "name": "timefly",
+  "displayName": "TimeFly",
+  "description": "Track your coding time and activity",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.99.0"
@@ -38,45 +38,26 @@
   "contributes": {
     "commands": [
       {
-        "command": "timefly.exportHeartbeats",
-        "title": "TimeFly: Export Heartbeats"
-      },
-      {
-        "command": "timefly.showSyncInfo",
-        "title": "TimeFly: Show Sync Information"
-      },
-      {
-        "command": "timefly.toggleDebugMode",
-        "title": "TimeFly: Toggle Debug Mode"
-      },
-      {
-        "command": "timefly.clearAllData",
-        "title": "TimeFly: Clear All Data"
-      },
-      {
         "command": "timefly.addApiKey",
         "title": "TimeFly: Add API Key"
       },
       {
         "command": "timefly.syncNow",
         "title": "TimeFly: Sync Now"
+      },
+      {
+        "command": "timefly.configureApiEndpoint",
+        "title": "TimeFly: Configure API Endpoint"
+      },
+      {
+        "command": "timefly.toggleSync",
+        "title": "TimeFly: Toggle Sync"
+      },
+      {
+        "command": "timefly.showSyncInfo",
+        "title": "TimeFly: Show Sync Information"
       }
-    ],
-    "configuration": {
-      "title": "TimeFly",
-      "properties": {
-        "timefly.debugMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable debug mode for detailed logging"
-        },
-        "timefly.apiEndpoint": {
-          "type": "string",
-          "default": "http://localhost:3000/sync",
-          "description": "API endpoint for syncing pulses"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

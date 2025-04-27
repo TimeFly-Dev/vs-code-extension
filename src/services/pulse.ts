@@ -6,13 +6,10 @@ import type { SyncService } from '../types'
 import type { SystemService } from '../types'
 import { formatTime, calculateElapsedTime } from '../utils/time'
 import { updateObject, appendToArray, pipe, when } from '../utils/functional'
-import { logger } from '../utils/logger'
 
 const IDLE_THRESHOLD = 120000 // 2 minutes in milliseconds
 const AGGREGATION_INTERVAL = 30000 // 30 seconds
-
-// Create a module-specific logger
-const pulseLogger = logger.createChildLogger('Pulse')
+const STORAGE_SYNC_INTERVAL = 10000 // 10 seconds - how often to check global storage
 
 /**
  * Calculates line changes between two content strings
@@ -21,7 +18,9 @@ const pulseLogger = logger.createChildLogger('Pulse')
  * @returns An object with additions and deletions
  */
 const calculateLineChanges = (oldContent: string, newContent: string) => {
-  if (!oldContent || oldContent === newContent) {return { additions: 0, deletions: 0 }}
+  if (!oldContent || oldContent === newContent) {
+    return { additions: 0, deletions: 0 }
+  }
 
   const oldLines = oldContent.split('\n')
   const newLines = newContent.split('\n')
@@ -60,7 +59,6 @@ const calculateLineChanges = (oldContent: string, newContent: string) => {
 
   // If we detected changes but they cancel out, ensure we report at least one change
   if (additions === deletions && additions > 0) {
-    pulseLogger.debug(`Detected ${additions} modified lines`)
     return { additions: 1, deletions: 1 }
   }
 
@@ -91,8 +89,6 @@ const createPulse = async (
     lastFileContent && filePath === document.fileName
       ? calculateLineChanges(lastFileContent, currentContent)
       : { additions: 0, deletions: 0 }
-
-  pulseLogger.debug(`Line changes for ${path.basename(filePath)}: +${lineChanges.additions}/-${lineChanges.deletions}`)
 
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri)
   const projectRootCount = workspaceFolder ? workspaceFolder.uri.fsPath.split(path.sep).length : 0
@@ -131,7 +127,7 @@ const updateContext = (context: PulseContext, pulse: Pulse): PulseContext => {
   const timeSinceLastActivity = calculateElapsedTime(context.lastActivityTime, now)
   const isActive = timeSinceLastActivity <= IDLE_THRESHOLD
 
-  // Solo add to today's total if we're active and within the idle threshold
+  // Only add to today's total if we're active and within the idle threshold
   const todayTotal = isActive ? context.todayTotal + timeSinceLastActivity : context.todayTotal
 
   const shouldAggregate = now - context.lastAggregationTime >= AGGREGATION_INTERVAL
@@ -182,8 +178,6 @@ const aggregatePulses = (context: PulseContext): PulseContext => {
     is_write: latestPulse.is_write,
   }
 
-  pulseLogger.debug(`Aggregated ${context.pulses.length} pulses for ${path.basename(latestPulse.entity)}`)
-
   return updateObject(context, {
     aggregatedPulses: appendToArray(context.aggregatedPulses, aggregatedPulse),
     pulses: [] as ReadonlyArray<Pulse>,
@@ -221,6 +215,19 @@ export const createPulseService = (
     activeStartTime: 0,
   }
 
+  // Set up periodic sync with global storage
+  const storageCheckInterval = setInterval(() => {
+    // Get the latest total from storage
+    const storedTotal = storageService.getTodayTotal()
+
+    // If the stored total is greater than our local total, update our context
+    if (storedTotal > currentContext.todayTotal) {
+      currentContext = updateObject(currentContext, {
+        todayTotal: storedTotal,
+      })
+    }
+  }, STORAGE_SYNC_INTERVAL)
+
   return {
     /**
      * Tracks activity in the editor
@@ -245,7 +252,7 @@ export const createPulseService = (
 
         // Save pulse and total time
         await storageService.savePulses([pulse])
-        
+
         // If we have aggregated pulses, save them too
         if (currentContext.aggregatedPulses.length > 0) {
           await storageService.saveAggregatedPulses(currentContext.aggregatedPulses)
@@ -254,12 +261,12 @@ export const createPulseService = (
             aggregatedPulses: [] as ReadonlyArray<AggregatedPulse>,
           })
         }
-        
+
         await storageService.saveTodayTotal(currentContext.todayTotal)
 
         return Promise.resolve()
       } catch (error) {
-        pulseLogger.error('Error tracking activity', error)
+        console.error('Error tracking activity', error)
         return Promise.reject(error)
       }
     },
@@ -285,7 +292,7 @@ export const createPulseService = (
 
       // Add stored pulses that aren't already in our list
       const uniqueStoredPulses = storedPulses.filter(p => !existingPulseTimes.has(p.time))
-      
+
       // Add stored aggregated pulses
       const uniqueStoredAggregatedPulses = storedAggregatedPulses.filter(p => !existingPulseTimes.has(p.start_time))
 
@@ -305,8 +312,16 @@ export const createPulseService = (
      * @returns A formatted string of total time
      */
     getTodayTotal: (): string => {
-      // Solo sumamos el tiempo transcurrido desde la última actividad si el usuario está activo
-      // Si el usuario está inactivo, simplemente devolvemos el total acumulado
+      // First, check if there's a newer value in storage
+      const storedTotal = storageService.getTodayTotal()
+      if (storedTotal > currentContext.todayTotal) {
+        currentContext = updateObject(currentContext, {
+          todayTotal: storedTotal,
+        })
+      }
+
+      // Only add the time elapsed since the last activity if the user is active
+      // If the user is inactive, simply return the accumulated total
       const now = Date.now()
       const timeSinceLastActivity = now - currentContext.lastActivityTime
       const isCurrentlyActive = currentContext.isActive && timeSinceLastActivity <= IDLE_THRESHOLD
@@ -343,35 +358,12 @@ export const createPulseService = (
       }
     },
 
-    /**
-     * Resets the pulse service state
-     * @returns A promise that resolves when the reset is complete
-     */
-    reset: async (): Promise<void> => {
-      pulseLogger.debug('Resetting pulse service state')
-
-      // Reset the context to initial state
-      currentContext = {
-        pulses: [],
-        aggregatedPulses: [],
-        todayTotal: 0,
-        lastFileContent: '',
-        lastActivityTime: Date.now(),
-        lastAggregationTime: Date.now(),
-        isActive: false,
-        activeStartTime: 0,
-      }
-
-      // Also update the storage
-      await storageService.saveTodayTotal(0)
-
-      pulseLogger.info('Pulse service state reset successfully')
-      return Promise.resolve()
-    },
-
     getSyncInfo: syncService.getSyncInfo,
 
-    dispose: syncService.stopSync,
+    dispose: (): void => {
+      clearInterval(storageCheckInterval)
+      syncService.stopSync()
+    },
   }
 }
 
