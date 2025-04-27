@@ -1,0 +1,23 @@
+TimeFly Proprietary License
+
+Copyright (c) 2025 TimeFly
+
+This software and associated documentation files ("TimeFly") are proprietary 
+and confidential. End users may install and use the software for personal 
+purposes, but may not modify, decompile, reverse engineer, or 
+redistribute the software without explicit written permission from TimeFly.
+
+Unauthorized copying, distribution, modification, public display, public 
+performance, reverse engineering, or creation of derivative works of this 
+proprietary software is strictly prohibited. No part of this software may be 
+reproduced, distributed, or transmitted in any form or by any means without 
+the prior written permission of TimeFly.
+
+TimeFly is a time tracking and analytics tool for coding activity and is provided 
+"as is", without warranty of any kind, express or implied, including but not 
+limited to the warranties of merchantability, fitness for a particular purpose, 
+and noninfringement.
+
+In no event shall TimeFly be liable for any claim, damages, or other liability, 
+whether in an action of contract, tort, or otherwise, arising from, out of, or in 
+connection with the software or the use or dealings with the software.
