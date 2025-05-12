@@ -3,7 +3,7 @@
  */
 export const CONFIG = {
   // API endpoint for syncing pulses (default, can be overridden in settings)
-  API_ENDPOINT: 'http://localhost:3001',
+  API_ENDPOINT: 'https://api.timefly.dev',
 
   // API Key settings
   API_KEY: {
