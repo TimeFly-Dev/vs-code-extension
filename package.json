@@ -40,10 +40,6 @@
       {
         "command": "timefly.addApiKey",
         "title": "TimeFly: Add API Key"
-      },
-      {
-        "command": "timefly.exportHeartbeats",
-        "title": "TimeFly: Export Heartbeats"
       }
     ]
   },
