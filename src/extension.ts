@@ -154,35 +154,6 @@ export function activate (context: vscode.ExtensionContext): any {
       // Sync is always active, removed toggle command
     )
 
-    // Register command to show sync info
-    context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.showSyncInfo', () => {
-        const syncInfo = syncService.getSyncInfo()
-        const syncStatus = 'Always Active'
-        const lastSync = syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleString() : 'Never'
-        const nextSync = new Date(syncInfo.nextSyncTime).toLocaleString()
-        const pendingItems = syncInfo.pendingPulses
-        const apiStatus = syncInfo.apiStatus
-
-        const message = `
-Sync Status: ${syncStatus}
-Last Sync: ${lastSync}
-Next Sync: ${nextSync}
-Pending Items: ${pendingItems}
-API Status: ${apiStatus}
-      `.trim()
-
-        vscode.window
-          .showInformationMessage(
-            'TimeFly Sync Information',
-            {
-              modal: true,
-              detail: message,
-            },
-          )
-      }),
-    )
-
     // Clean up on deactivation
     context.subscriptions.push({
       dispose: () => {

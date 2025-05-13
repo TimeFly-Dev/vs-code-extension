@@ -41,19 +41,6 @@
         "command": "timefly.addApiKey",
         "title": "TimeFly: Add API Key"
       },
-
-      {
-        "command": "timefly.toggleSync",
-        "title": "TimeFly: Toggle Sync"
-      },
-      {
-        "command": "timefly.showSyncInfo",
-        "title": "TimeFly: Show Sync Information"
-      },
-      {
-        "command": "timefly.clearAllData",
-        "title": "TimeFly: Clear All Data"
-      },
       {
         "command": "timefly.exportHeartbeats",
         "title": "TimeFly: Export Heartbeats"

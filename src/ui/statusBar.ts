@@ -10,7 +10,7 @@ export const createStatusBarItem = (): vscode.StatusBarItem => {
   statusBarItem.name = 'TimeFly'
   statusBarItem.text = '$(clock) 0m'
   statusBarItem.tooltip = 'Time spent coding today'
-  statusBarItem.command = 'timefly.showSyncInfo' // Make the status bar clickable
+  // Removed clickable command
   statusBarItem.show()
   return statusBarItem
 }
@@ -43,7 +43,6 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
   let tooltip = `Time spent coding today: ${total}\nStatus: ${isActive ? 'Active' : 'Inactive'}`
 
   // Add sync information to tooltip
-  tooltip += `\n\nSync Status: Always Active`
   tooltip += `\nLast Sync: ${syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleTimeString() : 'Never'}`
   tooltip += `\nNext Sync: ${new Date(syncInfo.nextSyncTime).toLocaleTimeString()}`
   tooltip += `\nPending Items: ${syncInfo.pendingPulses}`
