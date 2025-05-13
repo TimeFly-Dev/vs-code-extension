@@ -60,6 +60,68 @@ const showApiKeyNotification = () => {
  * @returns A promise that resolves to true if sync was successful
  * @throws Error if sync fails
  */
+const MAX_BATCH_SIZE = 3000 // Maximum number of items per sync batch
+const SYNC_TIMEOUT_MS = 30000 // 30 seconds timeout for each sync request
+
+const syncBatch = async (
+  batchData: ReadonlyArray<Pulse | AggregatedPulse>,
+  apiEndpoint: string,
+  apiKey: string,
+): Promise<boolean> => {
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
+
+    const response = await fetch(apiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey || '',
+      },
+      body: JSON.stringify({
+        data: batchData,
+        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        end: new Date().toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      let errorDetails = `Status: ${response.status} ${response.statusText}`
+      try {
+        const contentType = response.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
+          const errorJson = await response.json()
+          errorDetails += `, Details: ${JSON.stringify(errorJson)}`
+        } else {
+          const text = await response.text()
+          const preview = text.substring(0, 100) + (text.length > 100 ? '...' : '')
+          errorDetails += `, Response: ${preview}`
+        }
+      } catch (parseError) {
+        errorDetails += ', Could not parse response'
+      }
+
+      logger.error(`Sync batch failed: ${errorDetails}`)
+      return false
+    }
+
+    const result = (await response.json()) as SyncResponse
+    if (!result.success) {
+      logger.error(`API returned error: ${result.message}`)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    logger.error('Error during sync batch:', error)
+    return false
+  }
+}
+
 const syncToBackend = async (
   pulses: ReadonlyArray<Pulse>,
   aggregatedPulses: ReadonlyArray<AggregatedPulse>,
@@ -78,67 +140,28 @@ const syncToBackend = async (
     return false
   }
 
-  try {
-    logger.info(`Syncing to backend: ${apiEndpoint}`)
-    logger.info(`Using API key: ${apiKey.substring(0, 8)}...`)
-    logger.info(`Syncing ${pulses.length} pulses and ${aggregatedPulses.length} aggregated pulses`)
+  // Combine and sort items by time to ensure consistent batching
+  const allItems = [...pulses, ...aggregatedPulses].sort((a, b) => 
+    'time' in a && 'time' in b ? a.time - b.time : 
+    'start_time' in a && 'start_time' in b ? a.start_time - b.start_time : 0
+  )
 
-    const response = await fetch(apiEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-      },
-      body: JSON.stringify({
-        data: [...pulses, ...aggregatedPulses],
-        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        end: new Date().toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }),
-    })
-
-    if (!response.ok) {
-      let errorDetails = `Status: ${response.status} ${response.statusText}`
-
-      try {
-        const contentType = response.headers.get('content-type') || ''
-        if (contentType.includes('application/json')) {
-          const errorJson = await response.json()
-          errorDetails += `, Details: ${JSON.stringify(errorJson)}`
-        } else {
-          const text = await response.text()
-          const preview = text.substring(0, 100) + (text.length > 100 ? '...' : '')
-          errorDetails += `, Response: ${preview}`
-        }
-      } catch (parseError) {
-        errorDetails += ', Could not parse response'
-      }
-
-      logger.error(`Sync failed: ${errorDetails}`)
-      throw new Error(`Sync failed: ${errorDetails}`)
+  // Sync in batches
+  let successfulSync = true
+  for (let i = 0; i < allItems.length; i += MAX_BATCH_SIZE) {
+    const batch = allItems.slice(i, i + MAX_BATCH_SIZE)
+    
+    logger.info(`Syncing batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}: ${batch.length} items`)
+    
+    const batchSuccess = await syncBatch(batch, apiEndpoint, apiKey || '')
+    
+    if (!batchSuccess) {
+      successfulSync = false
+      break
     }
-
-    const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('application/json')) {
-      const text = await response.text()
-      const preview = text.substring(0, 100) + (text.length > 100 ? '...' : '')
-      logger.error(`Expected JSON response but got: ${contentType}, Preview: ${preview}`)
-      throw new Error(`Expected JSON response but got: ${contentType}, Preview: ${preview}`)
-    }
-
-    const result = (await response.json()) as SyncResponse
-
-    if (!result.success) {
-      logger.error(`API returned error: ${result.message}`)
-      throw new Error(`API returned error: ${result.message}`)
-    }
-
-    logger.info(`Sync successful: ${result.message}`)
-    return true
-  } catch (error) {
-    logger.error('Error during sync:', error)
-    throw error
   }
+
+  return successfulSync
 }
 
 /**
