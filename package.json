@@ -46,10 +46,6 @@
         "title": "TimeFly: Sync Now"
       },
       {
-        "command": "timefly.configureApiEndpoint",
-        "title": "TimeFly: Configure API Endpoint"
-      },
-      {
         "command": "timefly.toggleSync",
         "title": "TimeFly: Toggle Sync"
       },

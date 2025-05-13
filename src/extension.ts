@@ -6,7 +6,7 @@ import { createSystemService } from './services/system'
 import { createStatusBarItem, updateStatusBar } from './ui/statusBar'
 import { registerApiKeyCommands } from './commands/apiKey'
 import type { ActivityState } from './types'
-import { CONFIG } from './config'
+
 
 const IDLE_CHECK_INTERVAL = 60000 // Check for idle every minute
 const STATUS_BAR_UPDATE_INTERVAL = 1000 // Update status bar every second
@@ -165,54 +165,15 @@ export function activate (context: vscode.ExtensionContext): any {
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error'
               vscode.window
-                .showErrorMessage(`TimeFly: Sync failed - ${errorMessage}`, 'Configure Endpoint', 'Disable Sync')
+                .showErrorMessage(`TimeFly: Sync failed - ${errorMessage}`, 'Disable Sync')
                 .then(selection => {
-                  if (selection === 'Configure Endpoint') {
-                    vscode.commands.executeCommand('timefly.configureApiEndpoint')
-                  } else if (selection === 'Disable Sync') {
+                  if (selection === 'Disable Sync') {
                     syncService.disableSync()
                   }
                 })
             }
           },
         )
-      }),
-    )
-
-    // Register command to configure API endpoint
-    context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.configureApiEndpoint', async () => {
-        const config = vscode.workspace.getConfiguration('timefly')
-        const currentEndpoint = config.get<string>('apiEndpoint', CONFIG.API_ENDPOINT)
-
-        const newEndpoint = await vscode.window.showInputBox({
-          prompt: 'Enter the TimeFly API endpoint URL',
-          value: currentEndpoint,
-          placeHolder: CONFIG.API_ENDPOINT,
-          validateInput: value => {
-            try {
-              new URL(value)
-              return null
-            } catch (e) {
-              return 'Please enter a valid URL'
-            }
-          },
-        })
-
-        if (newEndpoint && newEndpoint !== currentEndpoint) {
-          await config.update('apiEndpoint', newEndpoint, vscode.ConfigurationTarget.Global)
-          vscode.window.showInformationMessage(`TimeFly: API endpoint updated to ${newEndpoint}`)
-
-          const selection = await vscode.window.showInformationMessage(
-            'Do you want to test the connection to the new endpoint?',
-            'Yes',
-            'No',
-          )
-
-          if (selection === 'Yes') {
-            vscode.commands.executeCommand('timefly.syncNow')
-          }
-        }
       }),
     )
 
@@ -257,9 +218,7 @@ API Status: ${apiStatus}
             'Sync Now',
           )
           .then(selection => {
-            if (selection === 'Configure Endpoint') {
-              vscode.commands.executeCommand('timefly.configureApiEndpoint')
-            } else if (selection === 'Disable Sync') {
+            if (selection === 'Disable Sync') {
               syncService.disableSync()
             } else if (selection === 'Enable Sync') {
               syncService.enableSync()
