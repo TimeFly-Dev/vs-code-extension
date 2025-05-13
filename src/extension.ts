@@ -147,52 +147,18 @@ export function activate (context: vscode.ExtensionContext): any {
       updateStatusBar(statusBarItem, pulseService)
     }, STATUS_BAR_UPDATE_INTERVAL)
 
-    // Register command to sync now
-    context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.syncNow', async () => {
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'TimeFly: Syncing data...',
-            cancellable: false,
-          },
-          async progress => {
-            try {
-              progress.report({ increment: 30, message: 'Connecting to server...' })
-              await syncService.syncPulses()
-              progress.report({ increment: 70, message: 'Sync completed' })
-              vscode.window.showInformationMessage('TimeFly: Sync completed successfully')
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-              vscode.window
-                .showErrorMessage(`TimeFly: Sync failed - ${errorMessage}`, 'Disable Sync')
-                .then(selection => {
-                  if (selection === 'Disable Sync') {
-                    syncService.disableSync()
-                  }
-                })
-            }
-          },
-        )
-      }),
-    )
+    // Sync is always active, no manual sync command needed
 
     // Register command to toggle sync
     context.subscriptions.push(
-      vscode.commands.registerCommand('timefly.toggleSync', () => {
-        if (syncService.isSyncEnabled()) {
-          syncService.disableSync()
-        } else {
-          syncService.enableSync()
-        }
-      }),
+      // Sync is always active, removed toggle command
     )
 
     // Register command to show sync info
     context.subscriptions.push(
       vscode.commands.registerCommand('timefly.showSyncInfo', () => {
         const syncInfo = syncService.getSyncInfo()
-        const syncStatus = syncInfo.syncEnabled !== false ? 'Enabled' : 'Disabled'
+        const syncStatus = 'Always Active'
         const lastSync = syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleString() : 'Never'
         const nextSync = new Date(syncInfo.nextSyncTime).toLocaleString()
         const pendingItems = syncInfo.pendingPulses
@@ -213,19 +179,7 @@ API Status: ${apiStatus}
               modal: true,
               detail: message,
             },
-            'Configure Endpoint',
-            syncInfo.syncEnabled !== false ? 'Disable Sync' : 'Enable Sync',
-            'Sync Now',
           )
-          .then(selection => {
-            if (selection === 'Disable Sync') {
-              syncService.disableSync()
-            } else if (selection === 'Enable Sync') {
-              syncService.enableSync()
-            } else if (selection === 'Sync Now') {
-              vscode.commands.executeCommand('timefly.syncNow')
-            }
-          })
       }),
     )
 

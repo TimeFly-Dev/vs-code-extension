@@ -149,7 +149,6 @@ export const createStorageService = (storage: vscode.Memento) => {
         isOnline: true,
         apiStatus: 'unknown',
         pendingPulses: 0,
-        syncEnabled: true, // Añadido syncEnabled con valor por defecto true
       }
 
       const status = storage.get<SyncStatus>(SYNC_STATUS_KEY) || defaultStatus
@@ -157,11 +156,6 @@ export const createStorageService = (storage: vscode.Memento) => {
       // Ensure pendingPulses is initialized
       if (status.pendingPulses === undefined) {
         status.pendingPulses = 0
-      }
-
-      // Ensure syncEnabled is initialized
-      if (status.syncEnabled === undefined) {
-        status.syncEnabled = true
       }
 
       return status
@@ -175,7 +169,6 @@ export const createStorageService = (storage: vscode.Memento) => {
         isOnline: true,
         apiStatus: 'unknown',
         pendingPulses: 0,
-        syncEnabled: true, // Añadido syncEnabled con valor por defecto true
       }
 
       return Promise.resolve(storage.update(SYNC_STATUS_KEY, updateObject(currentStatus, status)))

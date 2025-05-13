@@ -237,7 +237,6 @@ const performSync = (storageService: StorageService, context: vscode.ExtensionCo
  */
 export const createSyncService = (storageService: StorageService, context: vscode.ExtensionContext) => {
   let syncInterval: NodeJS.Timeout | null = null
-  let syncEnabled = true
 
   // Try to sync any pending pulses on startup
   const syncOnStartup = () => {
@@ -259,13 +258,7 @@ export const createSyncService = (storageService: StorageService, context: vscod
 
   return {
     syncPulses: () => {
-      if (!syncEnabled) {
-        logger.warn('Sync is disabled, skipping manual sync')
-        vscode.window.showWarningMessage('TimeFly: Sync is currently disabled. Enable it in settings.')
-        return Promise.reject(new Error('Sync is disabled'))
-      }
-
-      logger.info('Manual sync requested')
+      logger.info('Sync requested')
       return performSync(storageService, context)
     },
 
@@ -282,11 +275,6 @@ export const createSyncService = (storageService: StorageService, context: vscod
       })
 
       syncInterval = setInterval(() => {
-        if (!syncEnabled) {
-          logger.debug('Sync disabled, skipping scheduled sync')
-          return
-        }
-
         logger.info('Running scheduled sync')
         performSync(storageService, context).catch(error => {
           logger.error('Error during scheduled sync:', error)
@@ -301,15 +289,10 @@ export const createSyncService = (storageService: StorageService, context: vscod
         syncInterval = null
       }
 
-      // Only perform final sync if sync is enabled
-      if (syncEnabled) {
-        logger.info('Performing final sync before stopping')
-        return performSync(storageService, context).catch(error => {
-          logger.error('Error during final sync:', error)
-        })
-      }
-
-      return Promise.resolve()
+      logger.info('Performing final sync before stopping')
+      return performSync(storageService, context).catch(error => {
+        logger.error('Error during final sync:', error)
+      })
     },
 
     getSyncInfo: () => {
@@ -331,22 +314,7 @@ export const createSyncService = (storageService: StorageService, context: vscod
 
       return {
         ...status,
-        syncEnabled,
       }
     },
-
-    enableSync: () => {
-      syncEnabled = true
-      logger.info('Sync enabled')
-      vscode.window.showInformationMessage('TimeFly: Sync enabled')
-    },
-
-    disableSync: () => {
-      syncEnabled = false
-      logger.info('Sync disabled')
-      vscode.window.showInformationMessage('TimeFly: Sync disabled')
-    },
-
-    isSyncEnabled: () => syncEnabled,
   }
 }

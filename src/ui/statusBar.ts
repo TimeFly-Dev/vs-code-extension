@@ -28,9 +28,7 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
   let text = `$(clock) ${total}`
 
   // Add sync status indicator
-  if (syncInfo.syncEnabled === false) {
-    text += ' $(circle-slash)' // Sync disabled
-  } else if (syncInfo.pendingPulses > 0) {
+  if (syncInfo.pendingPulses > 0) {
     text += ` $(sync~spin) ${syncInfo.pendingPulses}` // Pending pulses with count
   } else if (syncInfo.apiStatus === 'error') {
     text += ' $(error)' // Error indicator
@@ -45,16 +43,13 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
   let tooltip = `Time spent coding today: ${total}\nStatus: ${isActive ? 'Active' : 'Inactive'}`
 
   // Add sync information to tooltip
-  tooltip += `\n\nSync Status: ${syncInfo.syncEnabled !== false ? 'Enabled' : 'Disabled'}`
+  tooltip += `\n\nSync Status: Always Active`
+  tooltip += `\nLast Sync: ${syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleTimeString() : 'Never'}`
+  tooltip += `\nNext Sync: ${new Date(syncInfo.nextSyncTime).toLocaleTimeString()}`
+  tooltip += `\nPending Items: ${syncInfo.pendingPulses}`
 
-  if (syncInfo.syncEnabled !== false) {
-    tooltip += `\nLast Sync: ${syncInfo.lastSyncTime > 0 ? new Date(syncInfo.lastSyncTime).toLocaleTimeString() : 'Never'}`
-    tooltip += `\nNext Sync: ${new Date(syncInfo.nextSyncTime).toLocaleTimeString()}`
-    tooltip += `\nPending Items: ${syncInfo.pendingPulses}`
-
-    if (syncInfo.apiStatus === 'error') {
-      tooltip += '\n\nSync Error: Could not connect to server'
-    }
+  if (syncInfo.apiStatus === 'error') {
+    tooltip += '\n\nSync Error: Could not connect to server'
   }
 
   tooltip += '\n\nClick to view sync details'

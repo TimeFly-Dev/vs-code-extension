@@ -71,7 +71,6 @@ export interface SyncStatus {
   isOnline: boolean
   apiStatus: 'ok' | 'error' | 'unknown'
   pendingPulses: number
-  syncEnabled: boolean
 }
 
 /**
@@ -138,9 +137,6 @@ export interface SyncService {
   scheduleSync: () => void
   stopSync: () => Promise<void>
   getSyncInfo: () => SyncStatus
-  enableSync: () => void
-  disableSync: () => void
-  isSyncEnabled: () => boolean
 }
 
 /**
