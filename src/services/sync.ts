@@ -72,7 +72,7 @@ const syncBatch = async (
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
 
-    const response = await fetch(apiEndpoint, {
+    const response = await fetch(`${apiEndpoint.toString()}/sync`, { 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
