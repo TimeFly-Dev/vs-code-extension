@@ -1,6 +1,11 @@
 import * as vscode from 'vscode'
 import type { PulseService } from '../types'
 
+const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
+
+let lastStatusText = '';
+let lastTooltip = '';
+
 /**
  * Creates a status bar item for displaying coding time
  * @returns A VSCode status bar item
@@ -36,8 +41,6 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
     text += ' $(cloud)' // Online indicator
   }
 
-  statusBarItem.text = text
-
   // Update tooltip with more detailed information
   const isActive = pulseService.isActive()
   let tooltip = `Time spent coding today: ${total}\nStatus: ${isActive ? 'Active' : 'Inactive'}`
@@ -53,5 +56,22 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
 
   tooltip += '\n\nClick to view sync details'
 
+  // Solo actualiza si hay cambios
+  if (text === lastStatusText && tooltip === lastTooltip) {
+    if (IS_DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[TimeFly] StatusBar: No changes, skipping update')
+    }
+    return;
+  }
+
+  statusBarItem.text = text
   statusBarItem.tooltip = tooltip
+  lastStatusText = text
+  lastTooltip = tooltip
+
+  if (IS_DEV) {
+    // eslint-disable-next-line no-console
+    console.log('[TimeFly] StatusBar updated:', text)
+  }
 }

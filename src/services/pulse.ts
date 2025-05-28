@@ -215,61 +215,73 @@ export const createPulseService = (
     activeStartTime: 0,
   }
 
-  // Set up periodic sync with global storage
-  const storageCheckInterval = setInterval(() => {
-    // Get the latest total from storage
-    const storedTotal = storageService.getTodayTotal()
+  let storageCheckInterval: NodeJS.Timeout | null = null;
+  let isPaused = false;
+  let lastActiveTime = Date.now();
+  const INACTIVITY_LIMIT = 60 * 60 * 1000; // 1 hora
 
-    // If the stored total is greater than our local total, update our context
-    if (storedTotal > currentContext.todayTotal) {
-      currentContext = updateObject(currentContext, {
-        todayTotal: storedTotal,
-      })
+  function startStorageCheck() {
+    if (storageCheckInterval) return;
+    storageCheckInterval = setInterval(() => {
+      const storedTotal = storageService.getTodayTotal();
+      if (storedTotal > currentContext.todayTotal) {
+        currentContext = updateObject(currentContext, {
+          todayTotal: storedTotal,
+        });
+      }
+    }, STORAGE_SYNC_INTERVAL);
+  }
+
+  function stopStorageCheck() {
+    if (storageCheckInterval) {
+      clearInterval(storageCheckInterval);
+      storageCheckInterval = null;
     }
-  }, STORAGE_SYNC_INTERVAL)
+  }
 
-  return {
-    /**
-     * Tracks activity in the editor
-     * @param editor - The VSCode text editor
-     * @param state - The activity state
-     * @returns A promise that resolves when tracking is complete
-     */
-    trackActivity: async (editor: vscode.TextEditor | undefined, state: ActivityState): Promise<void> => {
-      if (!editor) {
-        return Promise.resolve()
+  // Arranca el timer al inicio
+  startStorageCheck();
+
+  // Monitoriza actividad para pausar/reanudar el timer
+  function handleActivity() {
+    lastActiveTime = Date.now();
+    if (isPaused) {
+      startStorageCheck();
+      isPaused = false;
+    }
+  }
+
+  // Hook en trackActivity para detectar actividad
+  const originalTrackActivity = async (editor: vscode.TextEditor | undefined, state: ActivityState): Promise<void> => {
+    handleActivity();
+    if (!editor) {
+      return Promise.resolve();
+    }
+    try {
+      const pulse = await createPulse(editor, state, currentContext.lastFileContent, systemService);
+      currentContext = pipe(
+        currentContext,
+        ctx => updateContext(ctx, pulse),
+        when(shouldAggregate, aggregatePulses),
+      );
+      await storageService.savePulses([pulse]);
+      if (currentContext.aggregatedPulses.length > 0) {
+        await storageService.saveAggregatedPulses(currentContext.aggregatedPulses);
+        currentContext = updateObject(currentContext, {
+          aggregatedPulses: [] as ReadonlyArray<AggregatedPulse>,
+        });
       }
+      await storageService.saveTodayTotal(currentContext.todayTotal);
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error tracking activity', error);
+      return Promise.reject(error);
+    }
+  };
 
-      try {
-        const pulse = await createPulse(editor, state, currentContext.lastFileContent, systemService)
-
-        // Update context with new pulse
-        currentContext = pipe(
-          currentContext,
-          ctx => updateContext(ctx, pulse),
-          when(shouldAggregate, aggregatePulses),
-        )
-
-        // Save pulse and total time
-        await storageService.savePulses([pulse])
-
-        // If we have aggregated pulses, save them too
-        if (currentContext.aggregatedPulses.length > 0) {
-          await storageService.saveAggregatedPulses(currentContext.aggregatedPulses)
-          // Clear the aggregated pulses from context after saving
-          currentContext = updateObject(currentContext, {
-            aggregatedPulses: [] as ReadonlyArray<AggregatedPulse>,
-          })
-        }
-
-        await storageService.saveTodayTotal(currentContext.todayTotal)
-
-        return Promise.resolve()
-      } catch (error) {
-        console.error('Error tracking activity', error)
-        return Promise.reject(error)
-      }
-    },
+  // Reemplaza el método por el nuevo
+  const pulseService = {
+    trackActivity: originalTrackActivity,
 
     /**
      * Gets a summary of pulses
@@ -361,10 +373,21 @@ export const createPulseService = (
     getSyncInfo: syncService.getSyncInfo,
 
     dispose: (): void => {
-      clearInterval(storageCheckInterval)
-      syncService.stopSync()
+      stopStorageCheck();
+      clearInterval(inactivityInterval);
+      syncService.stopSync();
     },
   }
+
+  // Timer para pausar el storageCheckInterval si hay inactividad
+  const inactivityInterval = setInterval(() => {
+    if (Date.now() - lastActiveTime > INACTIVITY_LIMIT && !isPaused) {
+      stopStorageCheck();
+      isPaused = true;
+    }
+  }, 60000); // Chequea cada minuto
+
+  return pulseService
 }
 
 export type { PulseService } from '../types'

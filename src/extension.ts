@@ -34,6 +34,41 @@ let globalPulseService: any = null
 // Track if the extension has been activated
 let isActivated = false
 
+let statusInterval: NodeJS.Timeout | null = null;
+let idleInterval: NodeJS.Timeout | null = null;
+let isPaused = false;
+let lastActiveTime = Date.now();
+const INACTIVITY_LIMIT = 60 * 60 * 1000; // 1 hora
+let statusBarItem: vscode.StatusBarItem | null = null;
+
+function startIntervals() {
+  if (!idleInterval) {
+    idleInterval = setInterval(() => {
+      if (!globalPulseService.isActive() && statusBarItem) {
+        updateStatusBar(statusBarItem, globalPulseService);
+      }
+    }, IDLE_CHECK_INTERVAL);
+  }
+  if (!statusInterval) {
+    statusInterval = setInterval(() => {
+      if (statusBarItem) {
+        updateStatusBar(statusBarItem, globalPulseService);
+      }
+    }, STATUS_BAR_UPDATE_INTERVAL);
+  }
+}
+
+function stopIntervals() {
+  if (idleInterval) {
+    clearInterval(idleInterval);
+    idleInterval = null;
+  }
+  if (statusInterval) {
+    clearInterval(statusInterval);
+    statusInterval = null;
+  }
+}
+
 /**
  * Activates the extension
  * @param context - The VSCode extension context
@@ -50,8 +85,8 @@ export function activate (context: vscode.ExtensionContext): any {
   isActivated = true
 
   try {
-    const statusBarItem = createStatusBarItem()
-    context.subscriptions.push(statusBarItem)
+    statusBarItem = createStatusBarItem();
+    context.subscriptions.push(statusBarItem);
 
     // Initialize services
     const storageService = createStorageService(context.globalState)
@@ -88,13 +123,17 @@ export function activate (context: vscode.ExtensionContext): any {
         // Set a new idle timeout
         idleTimeoutId = setTimeout(() => {
           // After IDLE_THRESHOLD, mark as inactive
-          updateStatusBar(statusBarItem, pulseService)
+          if (statusBarItem) {
+            updateStatusBar(statusBarItem, pulseService)
+          }
           idleTimeoutId = null
         }, IDLE_THRESHOLD)
 
         const state = detectState(editor)
         return pulseService.trackActivity(editor, state).then(() => {
-          updateStatusBar(statusBarItem, pulseService)
+          if (statusBarItem) {
+            updateStatusBar(statusBarItem, pulseService)
+          }
         })
       }
     })()
@@ -133,19 +172,20 @@ export function activate (context: vscode.ExtensionContext): any {
     )
 
     // Initial activity tracking
-    trackEditorActivity(vscode.window.activeTextEditor)
+    if (statusBarItem) {
+      trackEditorActivity(vscode.window.activeTextEditor)
+    }
 
     // Set up idle checking
-    const idleInterval = setInterval(() => {
-      if (!pulseService.isActive()) {
-        updateStatusBar(statusBarItem, pulseService)
-      }
-    }, IDLE_CHECK_INTERVAL)
+    startIntervals()
 
-    // Update status bar more frequently
-    const statusInterval = setInterval(() => {
-      updateStatusBar(statusBarItem, pulseService)
-    }, STATUS_BAR_UPDATE_INTERVAL)
+    // Timer to pause intervals if there is inactivity
+    const inactivityInterval = setInterval(() => {
+      if (Date.now() - lastActiveTime > INACTIVITY_LIMIT && !isPaused) {
+        stopIntervals()
+        isPaused = true
+      }
+    }, 60000) // Check every minute
 
     // Sync is always active, no manual sync command needed
 
@@ -157,8 +197,8 @@ export function activate (context: vscode.ExtensionContext): any {
     // Clean up on deactivation
     context.subscriptions.push({
       dispose: () => {
-        clearInterval(idleInterval)
-        clearInterval(statusInterval)
+        stopIntervals()
+        clearInterval(inactivityInterval)
         pulseService.dispose()
         storageService.dispose()
         isActivated = false

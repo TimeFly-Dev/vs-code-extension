@@ -11,6 +11,8 @@ const TODAY_DATE_KEY = 'timefly.todayDate'
 const SYNC_STATUS_KEY = 'timefly.syncStatus'
 const LAST_UPDATE_KEY = 'timefly.lastUpdate'
 
+const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
+
 /**
  * Resets daily counters in storage
  * @param storage - The VSCode storage
@@ -46,7 +48,7 @@ const checkDayChange = (storage: vscode.Memento): Promise<void> => {
  */
 export const createStorageService = (storage: vscode.Memento) => {
   // Check day change on initialization
-  checkDayChange(storage).catch(error => console.error('Error checking day change during initialization', error))
+  checkDayChange(storage).catch(error => { if (IS_DEV) console.error('Error checking day change during initialization', error); });
 
   // Set up polling to check for updates from other instances
   let lastKnownUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
@@ -63,15 +65,17 @@ export const createStorageService = (storage: vscode.Memento) => {
 
   return {
     savePulses: (pulses: ReadonlyArray<Pulse>): Promise<void> => {
-      const existing = storage.get<Pulse[]>(PENDING_PULSES_KEY) || []
+      return checkDayChange(storage).then(() => {
+        const existing = storage.get<Pulse[]>(PENDING_PULSES_KEY) || []
 
-      // Remove content field before saving to reduce storage size
-      const pulsesToSave = pulses.map(pulse => {
-        const { content, ...pulseWithoutContent } = pulse
-        return pulseWithoutContent
+        // Remove content field before saving to reduce storage size
+        const pulsesToSave = pulses.map(pulse => {
+          const { content, ...pulseWithoutContent } = pulse
+          return pulseWithoutContent
+        })
+
+        return storage.update(PENDING_PULSES_KEY, [...existing, ...pulsesToSave])
       })
-
-      return Promise.resolve(storage.update(PENDING_PULSES_KEY, [...existing, ...pulsesToSave]))
     },
 
     getPendingPulses: (): ReadonlyArray<Pulse> => {
@@ -87,8 +91,10 @@ export const createStorageService = (storage: vscode.Memento) => {
     },
 
     saveAggregatedPulses: (pulses: ReadonlyArray<AggregatedPulse>): Promise<void> => {
-      const existing = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
-      return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, [...existing, ...pulses]))
+      return checkDayChange(storage).then(() => {
+        const existing = storage.get<AggregatedPulse[]>(AGGREGATED_PULSES_KEY) || []
+        return storage.update(AGGREGATED_PULSES_KEY, [...existing, ...pulses])
+      })
     },
 
     getAggregatedPulses: (): ReadonlyArray<AggregatedPulse> => {
@@ -125,7 +131,7 @@ export const createStorageService = (storage: vscode.Memento) => {
 
     getTodayTotal: (): number => {
       // Check day change but don't wait for the promise
-      checkDayChange(storage).catch(error => console.error('Error checking day change', error))
+      checkDayChange(storage).catch(error => { if (IS_DEV) console.error('Error checking day change', error); });
 
       // Always get the latest value from storage
       const total = storage.get<number>(TODAY_TOTAL_KEY) || 0
