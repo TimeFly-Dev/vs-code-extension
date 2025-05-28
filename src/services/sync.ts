@@ -60,7 +60,7 @@ const showApiKeyNotification = () => {
  * @returns A promise that resolves to true if sync was successful
  * @throws Error if sync fails
  */
-const MAX_BATCH_SIZE = 3000 // Maximum number of items per sync batch
+const MAX_BATCH_SIZE = 800 // Maximum number of items per sync batch
 const SYNC_TIMEOUT_MS = 30000 // 30 seconds timeout for each sync request
 
 const syncBatch = async (
@@ -99,7 +99,7 @@ const syncBatch = async (
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
 
-    const response = await fetch(apiEndpoint, {
+    const response = await fetch(`${apiEndpoint.toString()}/sync`, { 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -173,7 +173,7 @@ const syncToBackend = async (
   // Combine and sort items by time to ensure consistent batching
   const allItems = [...pulses, ...aggregatedPulses].sort((a, b) => 
     'time' in a && 'time' in b ? a.time - b.time : 
-    'start_time' in a && 'start_time' in b ? a.start_time - b.start_time : 0
+    'start_time' in a && 'start_time' in b ? a.start_time - b.start_time : 0,
   )
 
   // Sync in batches
