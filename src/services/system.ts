@@ -2,8 +2,7 @@ import * as vscode from 'vscode'
 import * as os from 'os'
 import * as crypto from 'crypto'
 import type { SystemInfo } from '../types'
-
-const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
+import { logger } from '../utils/logger'
 
 /**
  * Generates a unique machine ID
@@ -44,7 +43,7 @@ const getProjectDependencies = async (filePath: string): Promise<string> => {
 
     return Object.keys(allDependencies).join(',')
   } catch (error) {
-    if (IS_DEV) console.error('Error getting project dependencies:', error)
+    logger.error('Error getting project dependencies:', error)
     return ''
   }
 }
@@ -67,7 +66,7 @@ const getGitBranch = async (filePath: string): Promise<string> => {
 
     return repository?.state.HEAD?.name || ''
   } catch (error) {
-    if (IS_DEV) console.error('Error getting Git branch:', error)
+    logger.error('Error getting Git branch:', error)
     return ''
   }
 }

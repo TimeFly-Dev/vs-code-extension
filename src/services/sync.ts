@@ -3,8 +3,6 @@ import { CONFIG } from '../config'
 import * as vscode from 'vscode'
 import { logger } from '../utils/logger'
 
-const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
-
 // Define the response type
 interface SyncResponse {
   success: boolean
@@ -22,23 +20,23 @@ const getApiKey = async (context: vscode.ExtensionContext): Promise<string | nul
     const apiKey = context.globalState.get(CONFIG.API_KEY.KEY_STORAGE) as string | undefined
 
     if (!apiKey) {
-      if (IS_DEV) logger.warn('No API key found in storage')
+      logger.warn('No API key found in storage')
       return null
     }
 
     // Log the first few characters of the API key for debugging
-    if (IS_DEV) logger.info(`Retrieved API key from storage: ${apiKey.substring(0, 8)}...`)
+    logger.info(`Retrieved API key from storage: ${apiKey.substring(0, 8)}...`)
 
     // Validate that it looks like an API key
     const apiKeyRegex = /^[0-9a-f]{32,}$/i
     if (!apiKeyRegex.test(apiKey)) {
-      if (IS_DEV) logger.warn(`Invalid API key format in storage: ${apiKey.substring(0, 8)}...`)
+      logger.warn(`Invalid API key format in storage: ${apiKey.substring(0, 8)}...`)
       return null
     }
 
     return apiKey
   } catch (error) {
-    if (IS_DEV) logger.error('Error getting API key:', error)
+    logger.error('Error getting API key:', error)
     return null
   }
 }
@@ -69,8 +67,35 @@ const syncBatch = async (
   batchData: ReadonlyArray<Pulse | AggregatedPulse>,
   apiEndpoint: string,
   apiKey: string,
-): Promise<boolean> => {
+): Promise<{ success: boolean, errorDetails?: string }> => {
   try {
+    logger.info(`[Sync] Sending batch to ${apiEndpoint}`);
+    logger.info(`[Sync] Batch size: ${batchData.length}`);
+    logger.info(`[Sync] Batch preview:`, JSON.stringify(batchData.slice(0, 3), null, 2));
+    // Log fetch implementation
+    logger.info(`[Sync] fetch is native: ${typeof fetch !== 'undefined' && fetch.name === 'fetch'}`);
+    // Log Node version and platform
+    if (typeof process !== 'undefined') {
+      logger.info(`[Sync] Node version: ${process.version}`);
+      logger.info(`[Sync] Platform: ${process.platform}`);
+      logger.info(`[Sync] process.env.HTTP_PROXY: ${process.env.HTTP_PROXY}`);
+      logger.info(`[Sync] process.env.HTTPS_PROXY: ${process.env.HTTPS_PROXY}`);
+      logger.info(`[Sync] process.env.NO_PROXY: ${process.env.NO_PROXY}`);
+    }
+    // Log request details
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey || '',
+    };
+    logger.info(`[Sync] Request headers:`, JSON.stringify(headers));
+    const bodyPreview = JSON.stringify({
+      data: batchData.slice(0, 3),
+      start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      end: new Date().toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    logger.info(`[Sync] Request body preview (first 500 chars):`, bodyPreview.slice(0, 500));
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
 
@@ -106,21 +131,23 @@ const syncBatch = async (
       } catch (parseError) {
         errorDetails += ', Could not parse response'
       }
-
-      if (IS_DEV) logger.error(`Sync batch failed: ${errorDetails}`)
-      return false
+      logger.error(`[Sync] Sync batch failed: ${errorDetails}`)
+      return { success: false, errorDetails }
     }
 
     const result = (await response.json()) as SyncResponse
     if (!result.success) {
-      if (IS_DEV) logger.error(`API returned error: ${result.message}`)
-      return false
+      logger.error(`[Sync] API returned error: ${result.message}`)
+      return { success: false, errorDetails: result.message }
     }
-
-    return true
+    logger.info(`[Sync] Batch synced successfully!`);
+    return { success: true }
   } catch (error) {
-    if (IS_DEV) logger.error('Error during sync batch:', error)
-    return false
+    logger.error('[Sync] Error during sync batch:', error);
+    if (error instanceof Error && error.stack) {
+      logger.error('[Sync] Error stack:', error.stack);
+    }
+    return { success: false, errorDetails: String(error) }
   }
 }
 
@@ -128,18 +155,19 @@ const syncToBackend = async (
   pulses: ReadonlyArray<Pulse>,
   aggregatedPulses: ReadonlyArray<AggregatedPulse>,
   context: vscode.ExtensionContext,
-): Promise<boolean> => {
+): Promise<{ success: boolean, errorDetails?: string }> => {
   // Get the API endpoint from configuration or use the default
   const config = vscode.workspace.getConfiguration('timefly')
-  const apiEndpoint = config.get<string>('apiEndpoint', CONFIG.API_ENDPOINT)
+  const baseUrl = config.get<string>('baseUrl', CONFIG.BASE_URL)
+  const apiEndpoint = `${baseUrl}/sync`
 
   // Get API key
   const apiKey = await getApiKey(context)
 
   if (!apiKey) {
-    if (IS_DEV) logger.warn('No valid API key found, showing notification')
+    logger.warn('No valid API key found, showing notification')
     showApiKeyNotification()
-    return false
+    return { success: false, errorDetails: 'No valid API key found' }
   }
 
   // Combine and sort items by time to ensure consistent batching
@@ -149,21 +177,23 @@ const syncToBackend = async (
   )
 
   // Sync in batches
+  let lastError: string | undefined = undefined
   let successfulSync = true
   for (let i = 0; i < allItems.length; i += MAX_BATCH_SIZE) {
     const batch = allItems.slice(i, i + MAX_BATCH_SIZE)
-    
-    if (IS_DEV) logger.info(`Syncing batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}: ${batch.length} items`)
-    
-    const batchSuccess = await syncBatch(batch, apiEndpoint, apiKey || '')
-    
-    if (!batchSuccess) {
+    const batchIndex = Math.floor(i / MAX_BATCH_SIZE) + 1;
+    const batchRange = `[${i} - ${i + batch.length - 1}]`;
+    logger.info(`[Sync] Batch #${batchIndex} Range: ${batchRange}`);
+    const batchResult = await syncBatch(batch, apiEndpoint, apiKey || '')
+    if (!batchResult.success) {
+      logger.error(`[Sync] Batch #${batchIndex} failed. IDs/timestamps:`, batch.map(e => ('time' in e ? e.time : e.start_time)));
       successfulSync = false
+      lastError = batchResult.errorDetails
       break
     }
   }
 
-  return successfulSync
+  return { success: successfulSync, errorDetails: lastError }
 }
 
 /**
@@ -176,7 +206,7 @@ let isSyncing = false;
 
 const performSync = (storageService: StorageService, context: vscode.ExtensionContext): Promise<void> => {
   if (isSyncing) {
-    if (IS_DEV) logger.info('Sync already in progress, skipping concurrent sync');
+    logger.info('Sync already in progress, skipping concurrent sync');
     return Promise.resolve();
   }
   isSyncing = true;
@@ -187,13 +217,13 @@ const performSync = (storageService: StorageService, context: vscode.ExtensionCo
       const pendingPulses = storageService.getPendingPulses();
       const aggregatedPulses = storageService.getAggregatedPulses();
       if (pendingPulses.length === 0 && aggregatedPulses.length === 0) {
-        if (IS_DEV) logger.info('No pending pulses to sync');
+        logger.info('No pending pulses to sync');
         isSyncing = false;
         return Promise.resolve();
       }
       return getApiKey(context).then(apiKey => {
         if (!apiKey) {
-          if (IS_DEV) logger.warn('No valid API key found for sync');
+          logger.warn('No valid API key found for sync');
           showApiKeyNotification();
           isSyncing = false;
           return storageService.updateSyncStatus({
@@ -202,13 +232,14 @@ const performSync = (storageService: StorageService, context: vscode.ExtensionCo
             lastSyncTime: Date.now(),
             nextSyncTime: Date.now() + CONFIG.SYNC.INTERVAL,
             pendingPulses: pendingPulses.length + aggregatedPulses.length,
+            lastError: 'No valid API key found',
           });
         }
         const attemptSync = (retryCount: number): Promise<void> =>
           syncToBackend(pendingPulses, aggregatedPulses, context)
-            .then(success => {
-              if (success) {
-                if (IS_DEV) logger.info('Sync successful, clearing synced pulses');
+            .then(result => {
+              if (result.success) {
+                logger.info('Sync successful, clearing synced pulses');
                 return Promise.all([
                   storageService.clearSyncedPulses(pendingPulses),
                   storageService.clearSyncedAggregatedPulses(aggregatedPulses),
@@ -221,26 +252,27 @@ const performSync = (storageService: StorageService, context: vscode.ExtensionCo
                     isOnline: true,
                     apiStatus: 'ok',
                     pendingPulses: 0,
+                    lastError: undefined,
                   });
                 });
               }
-              if (IS_DEV) logger.error('Sync failed without specific error');
-              throw new Error('Sync failed without specific error');
+              logger.error('Sync failed without specific error');
+              throw new Error(result.errorDetails || 'Sync failed without specific error');
             })
             .catch(error => {
               if (retryCount < CONFIG.SYNC.MAX_RETRY_ATTEMPTS) {
                 const backoffTime = Math.pow(2, retryCount) * CONFIG.SYNC.INITIAL_BACKOFF;
-                if (IS_DEV) logger.info(
+                logger.info(
                   `Retrying sync in ${backoffTime}ms (attempt ${retryCount + 1} of ${CONFIG.SYNC.MAX_RETRY_ATTEMPTS})`,
                 );
                 return new Promise(resolve => setTimeout(() => resolve(attemptSync(retryCount + 1)), backoffTime));
               }
-              if (IS_DEV) logger.error(`Max retry attempts (${CONFIG.SYNC.MAX_RETRY_ATTEMPTS}) reached, giving up`);
+              logger.error(`Max retry attempts (${CONFIG.SYNC.MAX_RETRY_ATTEMPTS}) reached, giving up`);
               throw error;
             });
         return attemptSync(0)
           .catch(error => {
-            if (IS_DEV) logger.error('Sync failed after all retry attempts:', error);
+            logger.error('Sync failed after all retry attempts:', error);
             return storageService
               .updateSyncStatus({
                 isOnline: false,
@@ -249,6 +281,7 @@ const performSync = (storageService: StorageService, context: vscode.ExtensionCo
                   storageService.getSyncStatus().lastSyncTime > 0 ? storageService.getSyncStatus().lastSyncTime : Date.now(),
                 nextSyncTime: Date.now() + CONFIG.SYNC.INTERVAL,
                 pendingPulses: pendingPulses.length + aggregatedPulses.length,
+                lastError: String(error),
               })
               .then(() => {
                 throw error;
@@ -280,9 +313,9 @@ export const createSyncService = (storageService: StorageService, context: vscod
     const aggregatedPulses = storageService.getAggregatedPulses()
 
     if (pendingPulses.length > 0 || aggregatedPulses.length > 0) {
-      if (IS_DEV) logger.info('Pending pulses found on startup, attempting sync')
+      logger.info('Pending pulses found on startup, attempting sync')
       return performSync(storageService, context).catch(error => {
-        if (IS_DEV) logger.error('Error during startup sync:', error)
+        logger.error('Error during startup sync:', error)
       })
     }
 
@@ -294,40 +327,40 @@ export const createSyncService = (storageService: StorageService, context: vscod
 
   return {
     syncPulses: () => {
-      if (IS_DEV) logger.info('Sync requested')
+      logger.info('Sync requested')
       return performSync(storageService, context)
     },
 
     scheduleSync: () => {
       if (syncInterval) {
-        if (IS_DEV) logger.info('Sync already scheduled, skipping')
+        logger.info('Sync already scheduled, skipping')
         return
       }
 
-      if (IS_DEV) logger.info('Scheduling regular sync')
+      logger.info('Scheduling regular sync')
       // Don't wait for the first sync to complete
       performSync(storageService, context).catch(error => {
-        if (IS_DEV) logger.error('Error during initial scheduled sync:', error)
+        logger.error('Error during initial scheduled sync:', error)
       })
 
       syncInterval = setInterval(() => {
-        if (IS_DEV) logger.info('Running scheduled sync')
+        logger.info('Running scheduled sync')
         performSync(storageService, context).catch(error => {
-          if (IS_DEV) logger.error('Error during scheduled sync:', error)
+          logger.error('Error during scheduled sync:', error)
         })
       }, CONFIG.SYNC.INTERVAL)
     },
 
     stopSync: () => {
       if (syncInterval) {
-        if (IS_DEV) logger.info('Stopping scheduled sync')
+        logger.info('Stopping scheduled sync')
         clearInterval(syncInterval)
         syncInterval = null
       }
 
-      if (IS_DEV) logger.info('Performing final sync before stopping')
+      logger.info('Performing final sync before stopping')
       return performSync(storageService, context).catch(error => {
-        if (IS_DEV) logger.error('Error during final sync:', error)
+        logger.error('Error during final sync:', error)
       })
     },
 

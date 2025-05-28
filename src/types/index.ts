@@ -1,7 +1,7 @@
 /**
  * Represents the current activity state of the user
  */
-export type ActivityState = 'coding' | 'debugging'
+export type ActivityState = 'coding' | 'debugging' | 'ai'
 
 /**
  * Type of entity being tracked
@@ -71,6 +71,7 @@ export interface SyncStatus {
   isOnline: boolean
   apiStatus: 'ok' | 'error' | 'unknown'
   pendingPulses: number
+  lastError?: string
 }
 
 /**

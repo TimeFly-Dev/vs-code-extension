@@ -6,6 +6,7 @@ import type { SyncService } from '../types'
 import type { SystemService } from '../types'
 import { formatTime, calculateElapsedTime } from '../utils/time'
 import { updateObject, appendToArray, pipe, when } from '../utils/functional'
+import { logger } from '../utils/logger'
 
 const IDLE_THRESHOLD = 120000 // 2 minutes in milliseconds
 const AGGREGATION_INTERVAL = 30000 // 30 seconds
@@ -274,7 +275,7 @@ export const createPulseService = (
       await storageService.saveTodayTotal(currentContext.todayTotal);
       return Promise.resolve();
     } catch (error) {
-      console.error('Error tracking activity', error);
+      logger.error('Error tracking activity', error);
       return Promise.reject(error);
     }
   };
@@ -371,7 +372,7 @@ export const createPulseService = (
     },
 
     getSyncInfo: syncService.getSyncInfo,
-
+    storageService,
     dispose: (): void => {
       stopStorageCheck();
       clearInterval(inactivityInterval);

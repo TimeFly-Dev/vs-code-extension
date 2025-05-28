@@ -2,6 +2,7 @@ import type * as vscode from 'vscode'
 import type { Pulse, SyncStatus, AggregatedPulse } from '../types'
 import { hasDayChanged, getCurrentDateString } from '../utils/time'
 import { updateObject } from '../utils/functional'
+import { logger } from '../utils/logger'
 
 const PENDING_PULSES_KEY = 'timefly.pendingPulses'
 const AGGREGATED_PULSES_KEY = 'timefly.aggregatedPulses'
@@ -10,8 +11,6 @@ const LAST_SYNC_KEY = 'timefly.lastSync'
 const TODAY_DATE_KEY = 'timefly.todayDate'
 const SYNC_STATUS_KEY = 'timefly.syncStatus'
 const LAST_UPDATE_KEY = 'timefly.lastUpdate'
-
-const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
 
 /**
  * Resets daily counters in storage
@@ -48,7 +47,7 @@ const checkDayChange = (storage: vscode.Memento): Promise<void> => {
  */
 export const createStorageService = (storage: vscode.Memento) => {
   // Check day change on initialization
-  checkDayChange(storage).catch(error => { if (IS_DEV) console.error('Error checking day change during initialization', error); });
+  checkDayChange(storage).catch(error => { logger.error('Error checking day change during initialization', error); });
 
   // Set up polling to check for updates from other instances
   let lastKnownUpdate = storage.get<number>(LAST_UPDATE_KEY) || 0
@@ -131,7 +130,7 @@ export const createStorageService = (storage: vscode.Memento) => {
 
     getTodayTotal: (): number => {
       // Check day change but don't wait for the promise
-      checkDayChange(storage).catch(error => { if (IS_DEV) console.error('Error checking day change', error); });
+      checkDayChange(storage).catch(error => { logger.error('Error checking day change', error); });
 
       // Always get the latest value from storage
       const total = storage.get<number>(TODAY_TOTAL_KEY) || 0
@@ -178,6 +177,24 @@ export const createStorageService = (storage: vscode.Memento) => {
       }
 
       return Promise.resolve(storage.update(SYNC_STATUS_KEY, updateObject(currentStatus, status)))
+    },
+
+    clearAllPulses: (): Promise<void> => {
+      return Promise.resolve(storage.update(PENDING_PULSES_KEY, []))
+    },
+    clearAllAggregatedPulses: (): Promise<void> => {
+      return Promise.resolve(storage.update(AGGREGATED_PULSES_KEY, []))
+    },
+    clearAllData: (): Promise<void> => {
+      return Promise.all([
+        storage.update(PENDING_PULSES_KEY, []),
+        storage.update(AGGREGATED_PULSES_KEY, []),
+        storage.update(TODAY_TOTAL_KEY, 0),
+        storage.update(TODAY_DATE_KEY, undefined),
+        storage.update(SYNC_STATUS_KEY, undefined),
+        storage.update(LAST_SYNC_KEY, 0),
+        storage.update(LAST_UPDATE_KEY, Date.now()),
+      ]).then(() => undefined)
     },
 
     dispose: (): void => {

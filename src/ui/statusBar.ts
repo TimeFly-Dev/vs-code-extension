@@ -1,7 +1,6 @@
 import * as vscode from 'vscode'
 import type { PulseService } from '../types'
-
-const IS_DEV = process.env.NODE_ENV === 'development' || process.env.VSCODE_DEBUG_MODE === 'true';
+import { logger } from '../utils/logger'
 
 let lastStatusText = '';
 let lastTooltip = '';
@@ -15,7 +14,7 @@ export const createStatusBarItem = (): vscode.StatusBarItem => {
   statusBarItem.name = 'TimeFly'
   statusBarItem.text = '$(clock) 0m'
   statusBarItem.tooltip = 'Time spent coding today'
-  // Removed clickable command
+  statusBarItem.command = 'timefly.showSyncDetails'
   statusBarItem.show()
   return statusBarItem
 }
@@ -58,10 +57,7 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
 
   // Solo actualiza si hay cambios
   if (text === lastStatusText && tooltip === lastTooltip) {
-    if (IS_DEV) {
-      // eslint-disable-next-line no-console
-      console.log('[TimeFly] StatusBar: No changes, skipping update')
-    }
+      logger.debug('StatusBar: No changes, skipping update')
     return;
   }
 
@@ -70,8 +66,5 @@ export const updateStatusBar = (statusBarItem: vscode.StatusBarItem, pulseServic
   lastStatusText = text
   lastTooltip = tooltip
 
-  if (IS_DEV) {
-    // eslint-disable-next-line no-console
-    console.log('[TimeFly] StatusBar updated:', text)
-  }
+    logger.debug('StatusBar updated:', text)
 }

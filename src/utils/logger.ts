@@ -106,8 +106,7 @@ export const createLogger = (config: LoggerConfig): Logger => {
   return logger
 }
 
-// Determine if debug mode is enabled via environment variable
-const isDebugEnabled = true
+import { IS_DEV } from './env'
 
 /**
  * Default logger instance
@@ -115,6 +114,6 @@ const isDebugEnabled = true
 export const logger = createLogger({
   level: 'info',
   prefix: 'TimeFly',
-  enabled: isDebugEnabled,
+  enabled: IS_DEV,
 })
 
