@@ -3,7 +3,7 @@
  */
 export const CONFIG = {
   // API endpoint for syncing pulses (default, can be overridden in settings)
-  BASE_URL: 'https://api.timefly.dev',
+  BASE_URL: 'https://timefly-backend-vqmqhm-51360a-152-53-254-214.traefik.me',
 
   // API Key settings
   API_KEY: {

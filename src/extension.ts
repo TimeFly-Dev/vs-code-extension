@@ -259,6 +259,20 @@ export function activate (context: vscode.ExtensionContext): any {
       })
     );
 
+    // Register command to manually trigger sync
+    context.subscriptions.push(
+      vscode.commands.registerCommand('timefly.syncNow', () => {
+        vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Syncing data...' }, async () => {
+          try {
+            await globalSyncService?.syncPulses?.();
+            vscode.window.showInformationMessage('TimeFly: Sync successful!');
+          } catch (err) {
+            vscode.window.showErrorMessage('TimeFly: Sync failed: ' + (err instanceof Error ? err.message : String(err)));
+          }
+        });
+      })
+    );
+
     // Clean up on deactivation
     context.subscriptions.push({
       dispose: () => {
